@@ -5,13 +5,18 @@ Live digital-twin monitor with a real-time EPICS tab and an interactive
 offline tab that produces a fake stream from manual inputs.
 
 Run with:
-    marimo run lume_visualizations/live_stream_monitor.py
+    marimo edit lume_visualizations/live_stream_monitor.py
 """
 
 import marimo
 
 __generated_with = "0.22.0"
-app = marimo.App(width="full", app_title="LUME Live Stream Monitor")
+app = marimo.App(
+    width="full",
+    app_title="LUME Live Stream Monitor",
+    css_file="live_stream_monitor.css",
+    html_head_file="live_stream_monitor.head.html",
+)
 
 
 @app.cell
@@ -34,13 +39,21 @@ def imports():
         sys.path.insert(0, str(repo_root))
 
     from lume_visualizations.beam_monitor import StagedModelImageSource
-    from lume_visualizations.config import MANUAL_INPUT_PVS, SCREEN_CONFIGS, SCREEN_KEYS, EXTRA_MACHINE_INPUTS
+    from lume_visualizations.config import (
+        EXTRA_MACHINE_INPUTS,
+        MANUAL_INPUT_PVS,
+        SCREEN_CONFIGS,
+        SCREEN_KEYS,
+    )
     from lume_visualizations.dashboard import BeamDashboard, VisibilitySettings
     from lume_visualizations.epics_controls import EpicsInputProvider
+    from lume_visualizations.fake_epics_ioc import FAKE_INPUT_SPECS
 
     return (
         asyncio,
         datetime,
+        EXTRA_MACHINE_INPUTS,
+        FAKE_INPUT_SPECS,
         mo,
         MANUAL_INPUT_PVS,
         SCREEN_CONFIGS,
@@ -58,12 +71,18 @@ def header(mo):
 
 
 @app.cell
-def source_setup(EpicsInputProvider, StagedModelImageSource):
+def source_setup(EpicsInputProvider, EXTRA_MACHINE_INPUTS, FAKE_INPUT_SPECS, StagedModelImageSource):
     source = StagedModelImageSource.create_default()
     provider = EpicsInputProvider()
     model_input_names = source.get_model_input_names()
-    model_input_names = model_input_names[1:] + EXTRA_MACHINE_INPUTS # needed for the cu inj model
-    initial_inputs = source.get_current_inputs(model_input_names)
+    # Drop the first name (CAMR:IN20:186:R_DIST — not used as EPICS input here)
+    # and append extra camera measurement PVs fed as additional model inputs.
+    model_input_names = model_input_names[1:] + EXTRA_MACHINE_INPUTS
+    # Use FAKE_INPUT_SPECS defaults for initial slider positions — avoids an
+    # expensive model.get() call and is robust to EXTRA_MACHINE_INPUTS not
+    # being model-writable variables.
+    _default_map = {spec.pv_name: spec.default for spec in FAKE_INPUT_SPECS}
+    initial_inputs = {name: float(_default_map.get(name, 0.0)) for name in model_input_names}
     return initial_inputs, model_input_names, provider, source
 
 
@@ -81,7 +100,9 @@ def interactive_dashboard_setup(BeamDashboard):
 
 @app.cell
 def live_controls(mo, SCREEN_KEYS):
-    live_screen_dropdown = mo.ui.dropdown(options=SCREEN_KEYS, value="OTR4", label="Screen")
+    live_screen_dropdown = mo.ui.dropdown(
+        options=SCREEN_KEYS, value="OTR4", label="Screen"
+    )
     live_poll_period_slider = mo.ui.slider(
         start=0.2,
         stop=5.0,
@@ -105,7 +126,11 @@ def live_controls(mo, SCREEN_KEYS):
     live_controls_ui = mo.vstack(
         [
             mo.hstack(
-                [live_screen_dropdown, live_poll_period_slider, live_image_scale_mode],
+                [
+                    live_screen_dropdown,
+                    live_poll_period_slider,
+                    live_image_scale_mode,
+                ],
                 gap="1.0rem",
                 justify="start",
             ),
@@ -143,7 +168,9 @@ def live_controls(mo, SCREEN_KEYS):
 
 @app.cell
 def interactive_controls(mo, SCREEN_KEYS):
-    interactive_screen_dropdown = mo.ui.dropdown(options=SCREEN_KEYS, value="OTR4", label="Screen")
+    interactive_screen_dropdown = mo.ui.dropdown(
+        options=SCREEN_KEYS, value="OTR4", label="Screen"
+    )
     interactive_image_scale_mode = mo.ui.dropdown(
         options=["robust", "fixed", "auto"],
         value="robust",
@@ -156,25 +183,22 @@ def interactive_controls(mo, SCREEN_KEYS):
     interactive_show_emit_y = mo.ui.checkbox(value=True, label="eps_n,y")
     interactive_show_twiss_a_beta = mo.ui.checkbox(value=True, label="a.beta")
     interactive_show_twiss_b_beta = mo.ui.checkbox(value=True, label="b.beta")
-    interactive_controls_ui = mo.vstack(
+    # All display controls in a single compact row above the dashboard
+    interactive_controls_ui = mo.hstack(
         [
-            mo.hstack([interactive_screen_dropdown, interactive_image_scale_mode], gap="1.0rem", justify="start"),
-            mo.hstack(
-                [
-                    mo.md("**Show:**"),
-                    interactive_show_sigma_x,
-                    interactive_show_sigma_y,
-                    interactive_show_sigma_z,
-                    interactive_show_emit_x,
-                    interactive_show_emit_y,
-                    interactive_show_twiss_a_beta,
-                    interactive_show_twiss_b_beta,
-                ],
-                gap="1.0",
-                justify="start",
-            ),
+            interactive_screen_dropdown,
+            interactive_image_scale_mode,
+            mo.md("**Show:**"),
+            interactive_show_sigma_x,
+            interactive_show_sigma_y,
+            interactive_show_sigma_z,
+            interactive_show_emit_x,
+            interactive_show_emit_y,
+            interactive_show_twiss_a_beta,
+            interactive_show_twiss_b_beta,
         ],
-        gap="0.8rem",
+        gap="0.6rem",
+        justify="start",
     )
     return (
         interactive_controls_ui,
@@ -191,45 +215,67 @@ def interactive_controls(mo, SCREEN_KEYS):
 
 
 @app.cell
-def interactive_slider_controls(MANUAL_INPUT_PVS, initial_inputs, mo):
-    def slider_bounds(pv_name: str, value: float) -> tuple[float, float, float]:
-        if "PDES" in pv_name:
-            span = max(abs(value) * 0.15, 5.0)
-            step = max(span / 100.0, 0.1)
-        else:
-            span = max(abs(value) * 0.25, 2.0)
-            step = max(span / 100.0, 0.05)
-        return value - span, value + span, step
+def interactive_slider_controls(
+    FAKE_INPUT_SPECS, MANUAL_INPUT_PVS, initial_inputs, mo
+):
+    slider_labels = {
+        "SOLN:IN20:121:BCTRL": "Solenoid 121",
+        "QUAD:IN20:121:BCTRL": "Quad 121",
+        "QUAD:IN20:122:BCTRL": "Quad 122",
+        "ACCL:IN20:300:L0A_PDES": "L0A phase",
+        "ACCL:IN20:400:L0B_PDES": "L0B phase",
+        "QUAD:IN20:361:BCTRL": "Quad 361",
+        "QUAD:IN20:371:BCTRL": "Quad 371",
+        "QUAD:IN20:425:BCTRL": "Quad 425",
+        "QUAD:IN20:441:BCTRL": "Quad 441",
+        "QUAD:IN20:511:BCTRL": "Quad 511",
+        "QUAD:IN20:525:BCTRL": "Quad 525",
+    }
+    slider_specs = {spec.pv_name: spec for spec in FAKE_INPUT_SPECS}
+
+    def slider_step(pv_name: str) -> float:
+        spec = slider_specs[pv_name]
+        span = float(spec.maximum - spec.minimum)
+        if span <= 0:
+            return 0.01
+        if span < 0.1:
+            return span / 100.0
+        if span < 1.0:
+            return span / 200.0
+        return span / 150.0
 
     interactive_sliders = {}
     slider_rows = []
     current_row = []
     for index, pv_name in enumerate(MANUAL_INPUT_PVS):
-        value = float(initial_inputs[pv_name])
-        start, stop, step = slider_bounds(pv_name, value)
+        spec = slider_specs[pv_name]
         slider = mo.ui.slider(
-            start=start,
-            stop=stop,
-            step=step,
-            value=value,
-            label=pv_name,
+            start=float(spec.minimum),
+            stop=float(spec.maximum),
+            step=slider_step(pv_name),
+            value=float(initial_inputs[pv_name]),
+            label=slider_labels.get(pv_name, pv_name),
             show_value=True,
             include_input=True,
             full_width=True,
         )
         interactive_sliders[pv_name] = slider
         current_row.append(slider)
-        if len(current_row) == 2 or index == len(MANUAL_INPUT_PVS) - 1:
-            slider_rows.append(mo.hstack(current_row, widths="equal", gap="1.0rem"))
+        if len(current_row) == 4 or index == len(MANUAL_INPUT_PVS) - 1:
+            slider_rows.append(
+                mo.hstack(current_row, widths="equal", gap="0.6rem")
+            )
             current_row = []
 
-    interactive_slider_controls_ui = mo.vstack(slider_rows, gap="0.8rem")
+    interactive_slider_controls_ui = mo.vstack(slider_rows, gap="0.3rem")
     return interactive_slider_controls_ui, interactive_sliders
 
 
 @app.cell
 def state(mo):
-    live_status_text, set_live_status = mo.state("Waiting for live monitoring tab.")
+    live_status_text, set_live_status = mo.state(
+        "Waiting for live monitoring tab."
+    )
     interactive_status_text, set_interactive_status = mo.state(
         "Open the interactive tab to start the fake stream."
     )
@@ -258,7 +304,9 @@ def live_dashboard_view(live_dashboard, mo):
 
 @app.cell
 def interactive_dashboard_view(interactive_dashboard, mo):
-    interactive_dashboard_widget = mo.mpl.interactive(interactive_dashboard.fig)
+    interactive_dashboard_widget = mo.mpl.interactive(
+        interactive_dashboard.fig
+    )
     return (interactive_dashboard_widget,)
 
 
@@ -325,22 +373,22 @@ def layout(
     mo,
     set_active_tab,
 ):
+    live_status = mo.md(f"_Status: {live_status_text()}_")
+    interactive_status = mo.md(f"_Status: {interactive_status_text()}_")
     live_content = mo.vstack(
-        [
-            live_controls_ui,
-            live_dashboard_widget,
-            mo.callout(mo.md(live_status_text()), kind="info"),
-        ],
-        gap="1.0rem",
+        [live_controls_ui, live_dashboard_widget, live_status],
+        gap="0.75rem",
     )
+    # Controls and sliders sit above the full-width dashboard so the
+    # dashboard is not squeezed by a side panel.
     interactive_content = mo.vstack(
         [
             interactive_controls_ui,
             interactive_slider_controls_ui,
+            interactive_status,
             interactive_dashboard_widget,
-            mo.callout(mo.md(interactive_status_text()), kind="info"),
         ],
-        gap="1.0rem",
+        gap="0.5rem",
     )
     tabs = mo.ui.tabs(
         {
@@ -404,7 +452,10 @@ async def live_stream_task(
 
     async def _run_live_stream(active_token: int) -> None:
         shot_index = 0
-        while active_token == live_run_token() and active_tab() == "Live monitoring":
+        while (
+            active_token == live_run_token()
+            and active_tab() == "Live monitoring"
+        ):
             try:
                 inputs = provider.read_inputs(model_input_names)
                 now = datetime.now()
@@ -414,7 +465,6 @@ async def live_stream_task(
                     x_axis_value=now,
                     frame_index=shot_index,
                     image_caption=now.strftime("%H:%M:%S"),
-                   # title_suffix=f"Live shot {shot_index + 1}",
                 )
                 live_dashboard.update(frame, live_image_scale_mode.value)
                 set_live_status(
@@ -475,7 +525,10 @@ async def interactive_stream_task(
             now = datetime.now()
             if last_manual_values is None or manual_values != last_manual_values:
                 should_emit = True
-            elif last_emitted_at is None or (now - last_emitted_at).total_seconds() >= 1.0:
+            elif (
+                last_emitted_at is None
+                or (now - last_emitted_at).total_seconds() >= 1.0
+            ):
                 should_emit = True
 
             if should_emit:
@@ -485,9 +538,11 @@ async def interactive_stream_task(
                     x_axis_value=now,
                     frame_index=shot_index,
                     image_caption=now.strftime("%H:%M:%S"),
-                    title_suffix=None
+                    title_suffix=None,
                 )
-                interactive_dashboard.update(frame, interactive_image_scale_mode.value)
+                interactive_dashboard.update(
+                    frame, interactive_image_scale_mode.value
+                )
                 set_interactive_status(
                     f"Offline stream updated at {now.strftime('%H:%M:%S')} using manual controls for {interactive_screen_dropdown.value}."
                 )

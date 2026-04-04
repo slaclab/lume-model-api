@@ -1,0 +1,61 @@
+<script>
+// Auto-connect and hide-code script — active in marimo edit mode only.
+// In marimo run mode all of these buttons are absent, so the handlers are
+// no-ops and the MutationObserver disconnects after 30 s.
+(() => {
+  const state = {
+    connected: false,
+    previewed: false,
+  };
+
+  const getConnectionState = () =>
+    document.querySelector("#App")?.getAttribute("data-connection-state");
+
+  const clickConnect = () => {
+    if (state.connected) {
+      return;
+    }
+    const connectButton = Array.from(document.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "Click to connect",
+    );
+    if (connectButton instanceof HTMLElement) {
+      connectButton.click();
+    }
+  };
+
+  const clickPreview = () => {
+    if (state.previewed) {
+      return;
+    }
+    const previewButton = document.querySelector(
+      'button[data-testid="hide-code-button"]',
+    );
+    if (previewButton instanceof HTMLElement) {
+      previewButton.click();
+      state.previewed = true;
+    }
+  };
+
+  const bootstrap = () => {
+    const connectionState = getConnectionState();
+    if (connectionState === "OPEN") {
+      state.connected = true;
+      clickPreview();
+      return;
+    }
+    clickConnect();
+  };
+
+  window.addEventListener("load", () => {
+    bootstrap();
+    const observer = new MutationObserver(bootstrap);
+    observer.observe(document.documentElement, {
+      attributes: true,
+      childList: true,
+      subtree: true,
+    });
+    window.setInterval(bootstrap, 1000);
+    window.setTimeout(() => observer.disconnect(), 30000);
+  });
+})();
+</script>

@@ -1,0 +1,16 @@
+#app-chrome-sidebar,
+#app-chrome-panel,
+footer,
+[data-testid="filename-input"],
+button[data-testid="save-button"],
+button[data-testid="command-palette-button"],
+button[data-testid="notebook-menu-dropdown"],
+button[data-testid="app-config-button"],
+button[data-testid="shutdown-button"],
+[data-testid="helper"] {
+  display: none !important;
+}
+
+#App {
+  min-height: 100vh;
+}

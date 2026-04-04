@@ -97,17 +97,23 @@ conda activate va-dev-2
 ./start-fake-epics-ioc.sh --update-period 0.5
 ```
 
-2. In a second terminal, point the EPICS client at the local IOC and start the app:
+2. In a second terminal, start the app:
 
 ```bash
 conda activate va-dev-2
 export LCLS_LATTICE=/Users/smiskov/SLAC/lcls-lattice
-export EPICS_CA_AUTO_ADDR_LIST=NO
-export EPICS_CA_ADDR_LIST=127.0.0.1
 marimo run lume_visualizations/live_stream_monitor.py
 ```
 
-That leaves the marimo app unchanged; only the PV source changes.
+The app automatically defaults to `EPICS_CA_ADDR_LIST=127.0.0.1` when no EPICS
+environment variables are set, so no manual `export` is needed for a purely local
+fake-IOC run. If you are in an environment that already has EPICS env vars
+pointing elsewhere, override them explicitly before launching:
+
+```bash
+export EPICS_CA_AUTO_ADDR_LIST=NO
+export EPICS_CA_ADDR_LIST=127.0.0.1
+```
 
 ## Docker image
 
@@ -116,7 +122,7 @@ The included `Dockerfile` builds a runnable image that:
 - installs this package,
 - installs the pinned `virtual_accelerator` dependency from GitHub,
 - clones the `lcls-lattice` repository into `/opt/lcls-lattice`, and
-- defaults to serving the live monitor on port `2719`.
+- defaults to serving the live monitor on port `2719` via `marimo run`.
 
 Build and run it locally:
 
@@ -132,9 +138,9 @@ the same container:
 docker run --rm -e LUME_START_FAKE_EPICS=1 -p 2719:2719 lume-visualizations
 ```
 
-This test mode automatically sets the EPICS client to use `127.0.0.1` inside the
-container and launches `lume_visualizations/fake_epics_ioc.py` before starting
-the app.
+This automatically sets the EPICS client to use `127.0.0.1` inside the container,
+launches the fake IOC, waits up to 15 s for it to become ready, then starts the
+app. No additional `EPICS_CA_*` flags are needed.
 
 To run the quad scan app instead:
 
@@ -147,21 +153,46 @@ docker run --rm -p 2718:2718 lume-visualizations \
 
 Kubernetes manifests live under `deploy/kubernetes`.
 
-- `namespace.yaml` creates the `lume-visualizations` namespace.
-- `configmap.yaml` provides the `LCLS_LATTICE` path used in the container.
-- `quad-scan.yaml` deploys the quad scan app at `/quad-scan`.
-- `live-monitor.yaml` deploys the live monitor app at `/live-monitor`.
-- `ingress.yaml` routes both apps through a single hostname.
-- `kustomization.yaml` applies the full stack.
+- `namespace.yaml` — creates the `lume-visualizations` namespace.
+- `configmap.yaml` — provides the `LCLS_LATTICE` path used in the container.
+- `configmap-epics-fake.yaml` — EPICS config for the **in-pod fake IOC** (local/staging).
+- `configmap-epics-real.yaml` — EPICS config pointing at the **real CA gateway** (production).
+- `quad-scan.yaml` — deploys the quad scan app at `/quad-scan`.
+- `live-monitor.yaml` — deploys the live monitor app at `/live-monitor` via `marimo run`.
+- `ingress.yaml` — routes both apps through a single hostname with WebSocket upgrade headers.
+- `kustomization.yaml` — applies the full stack.
 
-Apply everything with:
+### Switching between fake and real EPICS
+
+Open `kustomization.yaml` and change the EPICS ConfigMap resource to one of:
+
+```yaml
+resources:
+  - configmap-epics-fake.yaml   # in-pod fake IOC (default)
+  # - configmap-epics-real.yaml # real facility CA gateway
+```
+
+The fake-IOC ConfigMap sets `LUME_START_FAKE_EPICS=1` and points the CA client at
+`127.0.0.1`. The real ConfigMap sets `LUME_START_FAKE_EPICS=0` and points at the
+CA gateway IP defined in that file — replace `134.79.169.20` with the actual
+address for your site before deploying to production.
+
+### Ingress note
+
+`ingress.yaml` passes `Upgrade`/`Connection` headers via a
+`configuration-snippet` annotation to support `marimo run`'s WebSocket reactive
+updates over HTTPS. This requires `allow-snippet-annotations: "true"` in the
+`ingress-nginx` controller ConfigMap. Check your cluster's ingress controller
+settings if reactive updates do not work after deploy.
+
+### Deploy
 
 ```bash
 kubectl apply -k deploy/kubernetes
 ```
 
-Before deploying, update the image tag in the manifests and replace the ingress
-host `lume-visualizations.example.org` with your real hostname.
+Before deploying, update the image tag in the manifests and confirm the ingress
+host matches your cluster's hostname.
 
 ## GitHub Actions
 
