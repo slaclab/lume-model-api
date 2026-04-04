@@ -14,7 +14,6 @@ dependencies = [
     "matplotlib>=3.8",
     "numpy>=1.26",
     "pyepics>=3.5",
-    "virtual-accelerator @ git+https://github.com/pluflou/virtual-accelerator.git@injector_pv_transform",
 ]
 # "virtual-accelerator @ git+https://github.com/slaclab/virtual-accelerator.git@09d1be14d44e682d5b7a08d2ae46232168828091",
 
