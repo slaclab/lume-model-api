@@ -8,11 +8,17 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
+import platform
 from typing import Mapping, Optional
 
 import numpy as np
 
-from lume_visualizations.config import MODEL_INPUT_NAMES, SCREEN_CONFIGS, resolve_lcls_lattice_path
+from lume_visualizations.config import (
+    EXTRA_MACHINE_INPUTS,
+    MODEL_INPUT_NAMES,
+    SCREEN_CONFIGS,
+    resolve_lcls_lattice_path,
+)
 
 
 @contextmanager
@@ -24,6 +30,57 @@ def _tao_model_workdir(lattice_path: str):
         yield
     finally:
         os.chdir(previous_cwd)
+
+
+def _create_safe_cu_hxr_staged_model(lattice_path: str):
+    from pytao import Tao
+    from lume_bmad.model import LUMEBmadModel
+    from virtual_accelerator.bmad.cu_transformer import CUBmadTransformer
+    from virtual_accelerator.bmad.variables import (
+        get_cu_hxr_screen_variables,
+        get_variables,
+    )
+    from virtual_accelerator.models import cu_hxr as va_cu_hxr
+    from virtual_accelerator.models.staged_model import StagedModel
+    from virtual_accelerator.surrogates.injector_surrogate import InjectorSurrogate
+    from virtual_accelerator.utils.variables import (
+        get_epics_to_name_or_overlay_mapping,
+        split_control_and_observable,
+    )
+
+    init_file = Path(lattice_path) / "bmad" / "models" / "cu_hxr" / "tao.init"
+
+    # Initializing Tao with the OTR2:OTR4 sliced lattice segfaults in this
+    # container runtime. Use the full lattice and query the OTR4 outputs from it.
+    with _tao_model_workdir(lattice_path):
+        tao = Tao(f"-init {init_file} -noplot")
+
+    control_name_to_element_name = get_epics_to_name_or_overlay_mapping()
+    variables = get_variables(tao)
+    control_variables, observable_variables = split_control_and_observable(variables)
+
+    screens = ["OTR3", "OTR4", "OTR11", "OTR12", "OTR21"]
+    control_variables, screen_attributes, used_screens = get_cu_hxr_screen_variables(
+        tao, control_variables, screens
+    )
+
+    transformer = CUBmadTransformer(
+        control_name_to_bmad=control_name_to_element_name,
+        screen_attributes=screen_attributes,
+    )
+    bmad_model = LUMEBmadModel(
+        tao=tao,
+        control_variables=control_variables,
+        output_variables=observable_variables,
+        transformer=transformer,
+        dump_locations=used_screens,
+    )
+
+    beam_path = (Path(va_cu_hxr.__file__).parent / ".." / "bmad" / "bmad_set_beam2000_pg").resolve()
+    bmad_model.tao.cmd(f"set beam_init position_file = {beam_path}")
+    bmad_model.set({"track_type": 1})
+
+    return StagedModel([InjectorSurrogate(), bmad_model])
 
 
 # ---------------------------------------------------------------------------
@@ -89,13 +146,13 @@ class StagedModelImageSource:
 
     @classmethod
     def create_default(cls):
-        from virtual_accelerator.models.staged_model import get_cu_hxr_staged_model
+        if _is_virtualapple_emulated_x86():
+            return SyntheticLiveImageSource()
 
         lattice_path = resolve_lcls_lattice_path()
         os.environ["LCLS_LATTICE"] = lattice_path
-        with _tao_model_workdir(lattice_path):
-            model = get_cu_hxr_staged_model(end_element="OTR4", track_beam=True)
-        return cls(model=model, reset_values={"track_type": 1})
+        model = _create_safe_cu_hxr_staged_model(lattice_path)
+        return cls(model=model, reset_values={})
 
     def reset(self) -> None:
         if self.reset_values:
@@ -232,6 +289,138 @@ class StagedModelImageSource:
 
 def default_manual_input_values() -> dict[str, float]:
     return {name: 0.0 for name in MODEL_INPUT_NAMES}
+
+
+def _is_virtualapple_emulated_x86() -> bool:
+    if platform.machine().lower() != "x86_64":
+        return False
+
+    cpuinfo_path = Path("/proc/cpuinfo")
+    if not cpuinfo_path.exists():
+        return False
+
+    try:
+        cpuinfo = cpuinfo_path.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return False
+
+    return "VirtualApple" in cpuinfo
+
+
+class SyntheticLiveImageSource:
+    """Container-safe fallback source for amd64-on-Apple emulation."""
+
+    thread_safe = True
+
+    def __init__(
+        self,
+        image_shape: tuple[int, int] = (256, 256),
+        max_scatter_points: int = 3000,
+    ):
+        from lume_visualizations.fake_epics_ioc import FAKE_INPUT_SPECS
+
+        defaults = {spec.pv_name: float(spec.default) for spec in FAKE_INPUT_SPECS}
+        defaults.setdefault("CAMR:IN20:186:R_DIST", 423.867825)
+        self.default_inputs = {
+            name: float(defaults.get(name, 0.0))
+            for name in [*MODEL_INPUT_NAMES, *EXTRA_MACHINE_INPUTS]
+        }
+        self.current_inputs = dict(self.default_inputs)
+        self.image_shape = image_shape
+        self.max_scatter_points = max_scatter_points
+
+    def reset(self) -> None:
+        self.current_inputs = dict(self.default_inputs)
+
+    def get_model_input_names(self) -> list[str]:
+        return list(MODEL_INPUT_NAMES)
+
+    def get_current_inputs(self, input_names: Optional[list[str]] = None) -> dict[str, float]:
+        names = input_names or self.get_model_input_names()
+        return {name: float(self.current_inputs[name]) for name in names}
+
+    def get_writable_model_input_names(self) -> list[str]:
+        return list(MODEL_INPUT_NAMES)
+
+    def snapshot(
+        self,
+        screen_key: str,
+        control_updates: Optional[Mapping[str, float]] = None,
+        x_axis_value: float | datetime = 0.0,
+        frame_index: int = 0,
+        image_caption: str = "",
+        title_suffix: str = "",
+    ) -> BeamFrame:
+        if control_updates:
+            for key, value in control_updates.items():
+                if key in self.current_inputs:
+                    self.current_inputs[key] = float(value)
+
+        screen = SCREEN_CONFIGS[screen_key]
+        screen_scale = {"OTR2": 0.92, "OTR3": 1.0, "OTR4": 1.08}.get(screen_key, 1.0)
+        focus_term = (
+            0.25 * self.current_inputs["QUAD:IN20:361:BCTRL"]
+            - 0.18 * self.current_inputs["QUAD:IN20:371:BCTRL"]
+            + 0.12 * self.current_inputs["QUAD:IN20:425:BCTRL"]
+            - 0.09 * self.current_inputs["QUAD:IN20:441:BCTRL"]
+        )
+        phase_term = 0.05 * (
+            self.current_inputs["ACCL:IN20:300:L0A_PDES"]
+            + self.current_inputs["ACCL:IN20:400:L0B_PDES"]
+        )
+        solenoid_term = 40.0 * self.current_inputs["SOLN:IN20:121:BCTRL"]
+        xrms_base = self.current_inputs["CAMR:IN20:186:XRMS"]
+        yrms_base = self.current_inputs["CAMR:IN20:186:YRMS"]
+
+        xrms_um = max(60.0, screen_scale * xrms_base + solenoid_term + 22.0 * np.sin(focus_term))
+        yrms_um = max(60.0, screen_scale * yrms_base - 0.6 * solenoid_term + 18.0 * np.cos(focus_term))
+        sigma_z_um = max(200.0, 140.0 * self.current_inputs["Pulse_length"] + 15.0 * np.cos(phase_term))
+        norm_emit_x_um_rad = max(0.08, 0.42 + 0.03 * np.sin(focus_term + 0.4 * phase_term))
+        norm_emit_y_um_rad = max(0.08, 0.39 + 0.03 * np.cos(focus_term - 0.3 * phase_term))
+
+        rng = np.random.default_rng(seed=2719 + frame_index)
+        beam_x_um = rng.normal(0.0, xrms_um, size=self.max_scatter_points)
+        beam_px_evc = rng.normal(0.0, max(0.02, yrms_um / 1800.0), size=self.max_scatter_points)
+
+        twiss_s = np.linspace(0.0, 40.0, 200)
+        twiss_a_beta = 5.5 + 1.3 * np.sin(twiss_s / 6.0 + 0.1 * focus_term)
+        twiss_b_beta = 7.8 + 1.8 * np.cos(twiss_s / 7.5 - 0.08 * focus_term)
+
+        image = None
+        if screen.image_pv:
+            nrow, ncol = self.image_shape
+            cy, cx = nrow / 2, ncol / 2
+            sigma_x_px = max(4.0, xrms_um / 18.0)
+            sigma_y_px = max(4.0, yrms_um / 18.0)
+            y_idx, x_idx = np.mgrid[0:nrow, 0:ncol]
+            image = np.exp(
+                -0.5 * ((x_idx - cx) / sigma_x_px) ** 2
+                - 0.5 * ((y_idx - cy) / sigma_y_px) ** 2
+            )
+            image += rng.normal(0.0, 0.02, size=image.shape)
+            image = np.clip(image, 0.0, None)
+
+        return BeamFrame(
+            screen_key=screen.key,
+            screen_label=screen.label,
+            x_axis_value=x_axis_value,
+            xrms_um=float(xrms_um),
+            yrms_um=float(yrms_um),
+            sigma_z_um=float(sigma_z_um),
+            norm_emit_x_um_rad=float(norm_emit_x_um_rad),
+            norm_emit_y_um_rad=float(norm_emit_y_um_rad),
+            image=image,
+            image_message=screen.image_message if image is None else "",
+            image_caption=image_caption,
+            beam_x_um=beam_x_um,
+            beam_px_evc=beam_px_evc,
+            twiss_s=twiss_s,
+            twiss_a_beta=twiss_a_beta,
+            twiss_b_beta=twiss_b_beta,
+            title_suffix=title_suffix,
+            frame_index=frame_index,
+            timestamp=time.time(),
+        )
 
 
 # ---------------------------------------------------------------------------
