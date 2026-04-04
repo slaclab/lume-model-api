@@ -4,13 +4,26 @@ from __future__ import annotations
 
 import os
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
+from pathlib import Path
 from typing import Mapping, Optional
 
 import numpy as np
 
 from lume_visualizations.config import MODEL_INPUT_NAMES, SCREEN_CONFIGS, resolve_lcls_lattice_path
+
+
+@contextmanager
+def _tao_model_workdir(lattice_path: str):
+    previous_cwd = Path.cwd()
+    model_dir = Path(lattice_path) / "bmad" / "models" / "cu_hxr"
+    os.chdir(model_dir)
+    try:
+        yield
+    finally:
+        os.chdir(previous_cwd)
 
 
 # ---------------------------------------------------------------------------
@@ -78,8 +91,10 @@ class StagedModelImageSource:
     def create_default(cls):
         from virtual_accelerator.models.staged_model import get_cu_hxr_staged_model
 
-        os.environ["LCLS_LATTICE"] = resolve_lcls_lattice_path()
-        model = get_cu_hxr_staged_model(end_element="OTR4", track_beam=True)
+        lattice_path = resolve_lcls_lattice_path()
+        os.environ["LCLS_LATTICE"] = lattice_path
+        with _tao_model_workdir(lattice_path):
+            model = get_cu_hxr_staged_model(end_element="OTR4", track_beam=True)
         return cls(model=model, reset_values={"track_type": 1})
 
     def reset(self) -> None:
