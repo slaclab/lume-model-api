@@ -13,7 +13,6 @@ DEFAULT_CONTAINER_LATTICE_PATH = Path("/opt/lcls-lattice")
 
 MODEL_INPUT_NAMES = [
     "CAMR:IN20:186:R_DIST",
-    "Pulse_length",
     "FBCK:BCI0:1:CHRG_S",
     "SOLN:IN20:121:BCTRL",
     "QUAD:IN20:121:BCTRL",
