@@ -1,0 +1,39 @@
+name: check-k8s-vendored
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  check-vendored-files:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify k8s vendored UI files match canonical sources
+        run: |
+          files=(
+            live_stream_monitor.py
+            live_stream_monitor.css
+            live_stream_monitor.head.html
+          )
+          failed=0
+          for f in "${files[@]}"; do
+            canonical="lume_visualizations/$f"
+            vendored="deploy/kubernetes/live-monitor-ui/$f"
+            if ! diff -q "$canonical" "$vendored" > /dev/null; then
+              echo "MISMATCH: $vendored differs from $canonical"
+              diff "$canonical" "$vendored" || true
+              failed=1
+            else
+              echo "OK: $vendored"
+            fi
+          done
+          if [ "$failed" -eq 1 ]; then
+            echo ""
+            echo "Run 'make sync-k8s-ui' to sync the vendored copies, then commit."
+            exit 1
+          fi
