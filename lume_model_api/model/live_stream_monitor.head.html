@@ -59,3 +59,64 @@
   });
 })();
 </script>
+<script>
+(() => {
+  const sessionParam = "lume_session";
+  const appPrefix = "/live-monitor";
+  const sessionId = new URL(window.location.href).searchParams.get(sessionParam);
+
+  if (!sessionId) {
+    return;
+  }
+
+  const rewriteUrl = (rawUrl) => {
+    const resolvedUrl = new URL(rawUrl, window.location.href);
+    const isSameHost = resolvedUrl.host === window.location.host;
+    const isSamePath = resolvedUrl.pathname.startsWith(appPrefix);
+    if (!isSameHost || !isSamePath) {
+      return rawUrl;
+    }
+    if (!resolvedUrl.searchParams.has(sessionParam)) {
+      resolvedUrl.searchParams.set(sessionParam, sessionId);
+    }
+    return resolvedUrl.toString();
+  };
+
+  const originalFetch = window.fetch.bind(window);
+  window.fetch = (input, init) => {
+    if (input instanceof Request) {
+      const nextUrl = rewriteUrl(input.url);
+      if (nextUrl !== input.url) {
+        input = new Request(nextUrl, input);
+      }
+      return originalFetch(input, init);
+    }
+    return originalFetch(rewriteUrl(input), init);
+  };
+
+  const originalOpen = XMLHttpRequest.prototype.open;
+  XMLHttpRequest.prototype.open = function (method, url, ...rest) {
+    return originalOpen.call(this, method, rewriteUrl(url), ...rest);
+  };
+
+  const OriginalWebSocket = window.WebSocket;
+  class SessionWebSocket extends OriginalWebSocket {
+    constructor(url, protocols) {
+      super(rewriteUrl(url), protocols);
+    }
+  }
+  Object.defineProperty(SessionWebSocket, "CONNECTING", {
+    value: OriginalWebSocket.CONNECTING,
+  });
+  Object.defineProperty(SessionWebSocket, "OPEN", {
+    value: OriginalWebSocket.OPEN,
+  });
+  Object.defineProperty(SessionWebSocket, "CLOSING", {
+    value: OriginalWebSocket.CLOSING,
+  });
+  Object.defineProperty(SessionWebSocket, "CLOSED", {
+    value: OriginalWebSocket.CLOSED,
+  });
+  window.WebSocket = SessionWebSocket;
+})();
+</script>

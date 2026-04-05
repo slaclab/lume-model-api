@@ -28,7 +28,6 @@ FAKE_INPUT_SPECS = [
     #FakePVSpec("camr_in20_186_r_dist", "CAMR:IN20:186:R_DIST", 423.867825, 210.21247820852545, 499.9996083265339, 23.0, 0.0),
     FakePVSpec("camr_in20_186_xrms", "CAMR:IN20:186:XRMS", 300, 200, 400, 23.0, 0.0),
     FakePVSpec("camr_in20_186_yrms", "CAMR:IN20:186:YRMS", 300, 200, 400, 23.0, 0.0),
-    FakePVSpec("pulse_length", "Pulse_length", 1.8550514181818183, 1.8181822778856414, 7.2718604921302035, 19.0, 0.4),
     FakePVSpec("fbck_bci0_1_chrg_s", "FBCK:BCI0:1:CHRG_S", 0.25, 0.25, 0.25, 31.0, 0.7),
     FakePVSpec("soln_in20_121_bctrl", "SOLN:IN20:121:BCTRL", 0.4779693455075814, 0.3774080152672698, 0.4983800018349345, 29.0, 1.0),
     FakePVSpec("quad_in20_121_bctrl", "QUAD:IN20:121:BCTRL", -0.001499227120199691, -0.02098429469554406, 0.020999198106589838, 17.0, 1.3),
@@ -52,7 +51,6 @@ class FakeLumeInputIOC(PVGroup):
     # camr_in20_186_r_dist = pvproperty(name="CAMR:IN20:186:R_DIST", value=423.867825)
     camr_in20_186_xrms = pvproperty(name="CAMR:IN20:186:XRMS", value=300)
     camr_in20_186_yrms = pvproperty(name="CAMR:IN20:186:YRMS", value=300)
-    pulse_length = pvproperty(name="Pulse_length", value=1.8550514181818183)
     fbck_bci0_1_chrg_s = pvproperty(name="FBCK:BCI0:1:CHRG_S", value=0.25)
     soln_in20_121_bctrl = pvproperty(name="SOLN:IN20:121:BCTRL", value=0.4779693455075814)
     quad_in20_121_bctrl = pvproperty(name="QUAD:IN20:121:BCTRL", value=-0.001499227120199691)
