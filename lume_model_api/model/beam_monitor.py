@@ -32,7 +32,7 @@ def _tao_model_workdir(lattice_path: str):
         os.chdir(previous_cwd)
 
 
-def _create_safe_cu_hxr_staged_model(lattice_path: str, start_element="OTR2", end_element="OTR4"):
+def _create_safe_cu_hxr_staged_model(lattice_path: str):
     from pytao import Tao
     from lume_bmad.model import LUMEBmadModel
     from virtual_accelerator.bmad.cu_transformer import CUBmadTransformer
@@ -50,10 +50,9 @@ def _create_safe_cu_hxr_staged_model(lattice_path: str, start_element="OTR2", en
 
     init_file = Path(lattice_path) / "bmad" / "models" / "cu_hxr" / "tao.init"
 
-    # Initializing Tao with the OTR2:OTR4 sliced lattice segfaults in this
-    # container runtime. Use the full lattice and query the OTR4 outputs from it.
+    # -slice_lattice segfaults inside the container runtime; use the full lattice.
     with _tao_model_workdir(lattice_path):
-        tao = Tao(f"-init {init_file} -noplot -slice_lattice {start_element}:{end_element}")
+        tao = Tao(f"-init {init_file} -noplot")
 
     control_name_to_element_name = get_epics_to_name_or_overlay_mapping()
     variables = get_variables(tao)
