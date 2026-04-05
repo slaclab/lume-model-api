@@ -77,6 +77,7 @@ def source_setup(EpicsInputProvider, EXTRA_MACHINE_INPUTS, FAKE_INPUT_SPECS, Sta
     model_input_names = source.get_model_input_names()
     # Drop CAMR:IN20:186:R_DIST and Pulse_length
     # and append extra camera measurement PVs fed as additional model inputs.
+    print(model_input_names)
     model_input_names = model_input_names[2:] + EXTRA_MACHINE_INPUTS
     # Use FAKE_INPUT_SPECS defaults for initial slider positions — avoids an
     # expensive model.get() call and is robust to EXTRA_MACHINE_INPUTS not
@@ -457,6 +458,8 @@ async def live_stream_task(
             and active_tab() == "Live monitoring"
         ):
             try:
+                remove_set = ("CAMR:IN20:186:R_DIST" , "Pulse_length")
+                model_input_names = [item for item in model_input_names if item not in remove_set]
                 inputs = provider.read_inputs(model_input_names)
                 now = datetime.now()
                 frame = source.snapshot(
