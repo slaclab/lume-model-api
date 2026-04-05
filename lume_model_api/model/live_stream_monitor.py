@@ -40,7 +40,7 @@ def imports():
 
     from lume_visualizations.beam_monitor import StagedModelImageSource
     from lume_visualizations.config import (
-        EXTRA_MACHINE_INPUTS,
+        EPICS_INPUT_PVS,
         MANUAL_INPUT_PVS,
         SCREEN_CONFIGS,
         SCREEN_KEYS,
@@ -52,7 +52,7 @@ def imports():
     return (
         asyncio,
         datetime,
-        EXTRA_MACHINE_INPUTS,
+        EPICS_INPUT_PVS,
         FAKE_INPUT_SPECS,
         mo,
         MANUAL_INPUT_PVS,
@@ -71,16 +71,13 @@ def header(mo):
 
 
 @app.cell
-def source_setup(EpicsInputProvider, EXTRA_MACHINE_INPUTS, FAKE_INPUT_SPECS, StagedModelImageSource):
+def source_setup(EpicsInputProvider, EPICS_INPUT_PVS, FAKE_INPUT_SPECS, StagedModelImageSource):
     source = StagedModelImageSource.create_default()
     provider = EpicsInputProvider()
-    model_input_names = source.get_model_input_names()
-    # Drop CAMR:IN20:186:R_DIST and Pulse_length
-    # and append extra camera measurement PVs fed as additional model inputs.
-    print(model_input_names)
-    model_input_names = model_input_names[2:] + EXTRA_MACHINE_INPUTS
+    # Keep fake and real EPICS deployments on the same explicit PV contract.
+    model_input_names = list(EPICS_INPUT_PVS)
     # Use FAKE_INPUT_SPECS defaults for initial slider positions — avoids an
-    # expensive model.get() call and is robust to EXTRA_MACHINE_INPUTS not
+    # expensive model.get() call and is robust to non-model EPICS inputs not
     # being model-writable variables.
     _default_map = {spec.pv_name: spec.default for spec in FAKE_INPUT_SPECS}
     initial_inputs = {name: float(_default_map.get(name, 0.0)) for name in model_input_names}
@@ -458,8 +455,6 @@ async def live_stream_task(
             and active_tab() == "Live monitoring"
         ):
             try:
-                remove_set = ("CAMR:IN20:186:R_DIST" , "Pulse_length")
-                model_input_names = [item for item in model_input_names if item not in remove_set]
                 inputs = provider.read_inputs(model_input_names)
                 now = datetime.now()
                 frame = source.snapshot(

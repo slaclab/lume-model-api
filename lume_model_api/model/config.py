@@ -34,6 +34,17 @@ EXTRA_MACHINE_INPUTS = [
     "CAMR:IN20:186:YRMS"
 ]
 
+EXCLUDED_EPICS_PVS = (
+    "CAMR:IN20:186:R_DIST",
+    "Pulse_length",
+)
+
+EPICS_INPUT_PVS = [
+    pv_name
+    for pv_name in [*MODEL_INPUT_NAMES, *EXTRA_MACHINE_INPUTS]
+    if pv_name not in EXCLUDED_EPICS_PVS
+]
+
 MANUAL_INPUT_PVS = [
     "SOLN:IN20:121:BCTRL",
     "QUAD:IN20:121:BCTRL",
