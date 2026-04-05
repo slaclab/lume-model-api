@@ -75,9 +75,9 @@ def source_setup(EpicsInputProvider, EXTRA_MACHINE_INPUTS, FAKE_INPUT_SPECS, Sta
     source = StagedModelImageSource.create_default()
     provider = EpicsInputProvider()
     model_input_names = source.get_model_input_names()
-    # Drop the first name (CAMR:IN20:186:R_DIST — not used as EPICS input here)
+    # Drop CAMR:IN20:186:R_DIST and Pulse_length
     # and append extra camera measurement PVs fed as additional model inputs.
-    model_input_names = model_input_names[1:] + EXTRA_MACHINE_INPUTS
+    model_input_names = model_input_names[2:] + EXTRA_MACHINE_INPUTS
     # Use FAKE_INPUT_SPECS defaults for initial slider positions — avoids an
     # expensive model.get() call and is robust to EXTRA_MACHINE_INPUTS not
     # being model-writable variables.
