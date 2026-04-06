@@ -11,6 +11,7 @@ from typing import Iterable
 from urllib.parse import parse_qs, urlencode, urlsplit, urlunsplit
 
 from aiohttp import ClientSession, ClientTimeout, WSMsgType, web
+from multidict import CIMultiDict
 
 
 LOGGER = logging.getLogger(__name__)
@@ -289,9 +290,18 @@ def _configure_logging() -> None:
 def _copy_request_headers(request: web.Request) -> dict[str, str]:
     headers: dict[str, str] = {}
     for key, value in request.headers.items():
-        if key.lower() in HOP_BY_HOP_HEADERS or key.lower() == "host":
+        lower_key = key.lower()
+        if lower_key in HOP_BY_HOP_HEADERS or lower_key == "host":
+            continue
+        # Strip WebSocket handshake headers — the proxy creates its own WS
+        # handshake when connecting upstream.
+        if lower_key.startswith("sec-websocket-"):
             continue
         headers[key] = value
+
+    # Forward the external Host so the worker can generate correct absolute
+    # URLs (e.g. in redirect Location headers or HTML-embedded URLs).
+    headers["Host"] = request.headers.get("X-Forwarded-Host", request.host)
 
     forwarded_for = request.headers.get("X-Forwarded-For", "").strip()
     remote = (request.remote or "").strip()
@@ -304,12 +314,13 @@ def _copy_request_headers(request: web.Request) -> dict[str, str]:
     return headers
 
 
-def _copy_response_headers(headers: Iterable[tuple[str, str]]) -> dict[str, str]:
-    result: dict[str, str] = {}
+def _copy_response_headers(headers: Iterable[tuple[str, str]]) -> CIMultiDict:
+    """Copy response headers preserving duplicate values (e.g. Set-Cookie)."""
+    result: CIMultiDict = CIMultiDict()
     for key, value in headers:
         if key.lower() in HOP_BY_HOP_HEADERS:
             continue
-        result[key] = value
+        result.add(key, value)
     return result
 
 
@@ -435,6 +446,7 @@ async def proxy_websocket(
                 protocols=protocols or None,
                 heartbeat=30.0,
                 autoping=True,
+                compress=0,  # Disable per-message deflate to avoid compression mismatch
             )
             break  # connected successfully
         except (asyncio.TimeoutError, OSError) as exc:
@@ -443,7 +455,10 @@ async def proxy_websocket(
                 continue
             raise web.HTTPBadGateway(text="Unable to connect to the assigned live monitor worker.") from exc
 
-    downstream_ws = web.WebSocketResponse(protocols=protocols or None, heartbeat=30.0)
+    # Disable compression: the proxy relays raw frames between browser and
+    # worker and cannot share per-message deflate contexts across the two
+    # independent WebSocket connections.
+    downstream_ws = web.WebSocketResponse(protocols=protocols or None, heartbeat=30.0, compress=False)
     await downstream_ws.prepare(request)
     await pool.mark_websocket_open(session_id)
 
@@ -499,7 +514,11 @@ async def pool_context(app: web.Application):
         connect=config.connect_timeout_seconds,
     )
     app["pool"] = pool
-    app["client_session"] = ClientSession(timeout=timeout)
+    # auto_decompress=False: the proxy must relay response bodies byte-for-byte.
+    # With the default (True), aiohttp silently decompresses gzipped bodies
+    # while preserving the original Content-Encoding header, causing the
+    # browser to double-decompress — garbled data → "Failed to fetch".
+    app["client_session"] = ClientSession(timeout=timeout, auto_decompress=False)
     cleanup_task = asyncio.create_task(pool.cleanup_forever())
     try:
         yield
