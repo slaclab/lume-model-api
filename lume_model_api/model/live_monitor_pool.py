@@ -15,6 +15,7 @@ from aiohttp import ClientSession, ClientTimeout, WSMsgType, web
 
 LOGGER = logging.getLogger(__name__)
 SESSION_QUERY_PARAM = "lume_session"
+SESSION_COOKIE_NAME = "lume_session"
 HOP_BY_HOP_HEADERS = {
     "connection",
     "keep-alive",
@@ -127,14 +128,17 @@ class SessionPool:
             fetch_mode == "navigate" and fetch_dest in {"document", "iframe", ""}
         )
 
-    def build_redirect_url(self, request: web.Request) -> str:
-        session_id = uuid.uuid4().hex
+    def build_redirect_url(self, request: web.Request, session_id: str) -> str:
         query = list(request.rel_url.query.items())
         query.append((SESSION_QUERY_PARAM, session_id))
-        return str(request.url.with_query(query))
+        return str(request.rel_url.with_query(query))
 
     def session_id_from_request(self, request: web.Request) -> str | None:
         session_id = request.query.get(SESSION_QUERY_PARAM)
+        if session_id:
+            return session_id
+
+        session_id = request.cookies.get(SESSION_COOKIE_NAME)
         if session_id:
             return session_id
 
@@ -273,10 +277,37 @@ def _copy_request_headers(request: web.Request) -> dict[str, str]:
         if key.lower() in HOP_BY_HOP_HEADERS or key.lower() == "host":
             continue
         headers[key] = value
-    headers["X-Forwarded-For"] = request.remote or ""
-    headers["X-Forwarded-Host"] = request.host
-    headers["X-Forwarded-Proto"] = request.scheme
+
+    forwarded_for = request.headers.get("X-Forwarded-For", "").strip()
+    remote = (request.remote or "").strip()
+    if forwarded_for and remote:
+        headers["X-Forwarded-For"] = f"{forwarded_for}, {remote}"
+    else:
+        headers["X-Forwarded-For"] = forwarded_for or remote
+    headers["X-Forwarded-Host"] = request.headers.get("X-Forwarded-Host", request.host)
+    headers["X-Forwarded-Proto"] = request.headers.get("X-Forwarded-Proto", request.scheme)
     return headers
+
+
+def _set_session_cookie(
+    response: web.StreamResponse,
+    request: web.Request,
+    pool: SessionPool,
+    session_id: str | None,
+) -> None:
+    if not session_id:
+        return
+
+    forwarded_proto = request.headers.get("X-Forwarded-Proto", request.scheme)
+    response.set_cookie(
+        SESSION_COOKIE_NAME,
+        session_id,
+        max_age=pool.config.session_timeout_seconds,
+        path=pool.config.base_url or "/",
+        httponly=True,
+        samesite="Lax",
+        secure=forwarded_proto == "https",
+    )
 
 
 def _copy_response_headers(headers: Iterable[tuple[str, str]]) -> dict[str, str]:
@@ -298,7 +329,13 @@ async def proxy_request(request: web.Request) -> web.StreamResponse:
     session_id = pool.session_id_from_request(request)
 
     if pool.should_redirect(request, session_id):
-        raise web.HTTPTemporaryRedirect(location=pool.build_redirect_url(request))
+        session_id = uuid.uuid4().hex
+        response = web.Response(
+            status=307,
+            headers={"Location": pool.build_redirect_url(request, session_id)},
+        )
+        _set_session_cookie(response, request, pool, session_id)
+        return response
 
     is_websocket = request.headers.get("Upgrade", "").lower() == "websocket"
     if is_websocket:
@@ -313,6 +350,8 @@ async def proxy_http(
     session_id: str | None,
 ) -> web.StreamResponse:
     if session_id is None:
+        if request.method not in {"GET", "HEAD", "OPTIONS"}:
+            raise web.HTTPBadRequest(text="Missing live monitor session identifier.")
         return await _proxy_http_to_stateless_worker(request, pool)
 
     for attempt in range(2):
@@ -322,7 +361,9 @@ async def proxy_http(
             raise web.HTTPServiceUnavailable(text=str(exc)) from exc
 
         try:
-            return await _forward_http_request(request, pool, worker_index)
+            response = await _forward_http_request(request, pool, worker_index)
+            _set_session_cookie(response, request, pool, session_id)
+            return response
         except (asyncio.TimeoutError, OSError, web.HTTPException) as exc:
             if isinstance(exc, web.HTTPException):
                 raise
