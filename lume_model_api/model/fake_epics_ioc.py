@@ -30,13 +30,10 @@ FAKE_INPUT_SPECS = [
     #FakePVSpec("camr_in20_186_r_dist", "CAMR:IN20:186:R_DIST", 423.867825, 210.21247820852545, 499.9996083265339, 23.0, 0.0),
     FakePVSpec("camr_in20_186_xrms", "CAMR:IN20:186:XRMS", 300, 200, 400, 23.0, 0.0),
     FakePVSpec("camr_in20_186_yrms", "CAMR:IN20:186:YRMS", 300, 200, 400, 23.0, 0.0),
-    FakePVSpec("fbck_bci0_1_chrg_s", "FBCK:BCI0:1:CHRG_S", 0.25, 0.25, 0.25, 31.0, 0.7),
     FakePVSpec("soln_in20_121_bctrl", "SOLN:IN20:121:BCTRL", 0.4779693455075814, 0.3774080152672698, 0.4983800018349345, 29.0, 1.0),
     FakePVSpec("quad_in20_121_bctrl", "QUAD:IN20:121:BCTRL", -0.001499227120199691, -0.02098429469554406, 0.020999198106589838, 17.0, 1.3),
     FakePVSpec("quad_in20_122_bctrl", "QUAD:IN20:122:BCTRL", -0.0006872989433749197, -0.020998830517503037, 0.020998929132148195, 21.0, 1.7),
-    FakePVSpec("accl_in20_300_l0a_ades", "ACCL:IN20:300:L0A_ADES", 58.0, 58.0, 58.0, 43.0, 0.0),
     FakePVSpec("accl_in20_300_l0a_pdes", "ACCL:IN20:300:L0A_PDES", -9.53597349, -24.998714513984325, 9.991752397382681, 37.0, 2.0),
-    FakePVSpec("accl_in20_400_l0b_ades", "ACCL:IN20:400:L0B_ADES", 70.0, 70.0, 70.0, 41.0, 0.0),
     FakePVSpec("accl_in20_400_l0b_pdes", "ACCL:IN20:400:L0B_PDES", 9.85566222, -24.99972566363747, 9.998904767155892, 33.0, 2.3),
     FakePVSpec("quad_in20_361_bctrl", "QUAD:IN20:361:BCTRL", -2.0005920106399526, -4.318053641915576, -1.0800430432494976, 27.0, 2.6),
     FakePVSpec("quad_in20_371_bctrl", "QUAD:IN20:371:BCTRL", 2.0005920106399526, 1.0913525514575348, 4.30967984810423, 25.0, 3.0),
@@ -74,13 +71,10 @@ class FakeLumeInputIOC(PVGroup):
     # camr_in20_186_r_dist = pvproperty(name="CAMR:IN20:186:R_DIST", value=423.867825)
     camr_in20_186_xrms = pvproperty(name="CAMR:IN20:186:XRMS", value=300)
     camr_in20_186_yrms = pvproperty(name="CAMR:IN20:186:YRMS", value=300)
-    fbck_bci0_1_chrg_s = pvproperty(name="FBCK:BCI0:1:CHRG_S", value=0.25)
     soln_in20_121_bctrl = pvproperty(name="SOLN:IN20:121:BCTRL", value=0.4779693455075814)
     quad_in20_121_bctrl = pvproperty(name="QUAD:IN20:121:BCTRL", value=-0.001499227120199691)
     quad_in20_122_bctrl = pvproperty(name="QUAD:IN20:122:BCTRL", value=-0.0006872989433749197)
-    accl_in20_300_l0a_ades = pvproperty(name="ACCL:IN20:300:L0A_ADES", value=58.0)
     accl_in20_300_l0a_pdes = pvproperty(name="ACCL:IN20:300:L0A_PDES", value=-9.53597349)
-    accl_in20_400_l0b_ades = pvproperty(name="ACCL:IN20:400:L0B_ADES", value=70.0)
     accl_in20_400_l0b_pdes = pvproperty(name="ACCL:IN20:400:L0B_PDES", value=9.85566222)
     quad_in20_361_bctrl = pvproperty(name="QUAD:IN20:361:BCTRL", value=-2.0005920106399526)
     quad_in20_371_bctrl = pvproperty(name="QUAD:IN20:371:BCTRL", value=2.0005920106399526)
