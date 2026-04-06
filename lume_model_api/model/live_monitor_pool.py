@@ -37,6 +37,7 @@ class PoolConfig:
     cluster_domain: str
     worker_port: int
     session_timeout_seconds: int
+    no_ws_timeout_seconds: int
     cleanup_interval_seconds: int
     connect_timeout_seconds: float
     request_timeout_seconds: float
@@ -61,6 +62,9 @@ class PoolConfig:
             session_timeout_seconds=int(
                 os.environ.get("LUME_SESSION_TIMEOUT_SECONDS", "3600")
             ),
+            no_ws_timeout_seconds=int(
+                os.environ.get("LUME_NO_WS_TIMEOUT_SECONDS", "60")
+            ),
             cleanup_interval_seconds=int(
                 os.environ.get("LUME_SESSION_CLEANUP_INTERVAL_SECONDS", "30")
             ),
@@ -79,6 +83,7 @@ class SessionLease:
     worker_index: int
     last_activity: float
     active_websockets: int = 0
+    ever_had_websocket: bool = False
 
 
 class PoolFullError(RuntimeError):
@@ -202,6 +207,7 @@ class SessionPool:
             lease = self._leases.get(session_id)
             if lease is not None:
                 lease.active_websockets += 1
+                lease.ever_had_websocket = True
                 lease.last_activity = time.time()
 
     async def mark_websocket_closed(self, session_id: str) -> None:
@@ -250,7 +256,16 @@ class SessionPool:
             session_id
             for session_id, lease in self._leases.items()
             if lease.active_websockets == 0
-            and now - lease.last_activity >= self.config.session_timeout_seconds
+            and (
+                # Sessions that never connected a WS browser use a short TTL so
+                # that a full page-load that was abandoned (tab closed before WS
+                # handshake) does not block a worker slot for a full hour.
+                now - lease.last_activity >= (
+                    self.config.session_timeout_seconds
+                    if lease.ever_had_websocket
+                    else self.config.no_ws_timeout_seconds
+                )
+            )
         ]
         for session_id in expired_sessions:
             lease = self._leases.pop(session_id)
@@ -400,28 +415,33 @@ async def proxy_websocket(
     if session_id is None:
         raise web.HTTPBadRequest(text="Missing live monitor session identifier.")
 
-    try:
-        worker_index = await pool.allocate_worker(session_id)
-    except PoolFullError as exc:
-        raise web.HTTPServiceUnavailable(text=str(exc)) from exc
-
     client: ClientSession = request.app["client_session"]
-    upstream_url = pool.build_upstream_url(request, worker_index)
     headers = _copy_request_headers(request)
     protocol_header = request.headers.get("Sec-WebSocket-Protocol", "")
     protocols = [value.strip() for value in protocol_header.split(",") if value.strip()]
 
-    try:
-        upstream_ws = await client.ws_connect(
-            upstream_url,
-            headers=headers,
-            protocols=protocols or None,
-            heartbeat=30.0,
-            autoping=True,
-        )
-    except (asyncio.TimeoutError, OSError) as exc:
-        await pool.drop(session_id, reason=str(exc))
-        raise web.HTTPBadGateway(text="Unable to connect to the assigned live monitor worker.") from exc
+    upstream_ws = None
+    for attempt in range(2):
+        try:
+            worker_index = await pool.allocate_worker(session_id)
+        except PoolFullError as exc:
+            raise web.HTTPServiceUnavailable(text=str(exc)) from exc
+
+        upstream_url = pool.build_upstream_url(request, worker_index)
+        try:
+            upstream_ws = await client.ws_connect(
+                upstream_url,
+                headers=headers,
+                protocols=protocols or None,
+                heartbeat=30.0,
+                autoping=True,
+            )
+            break  # connected successfully
+        except (asyncio.TimeoutError, OSError) as exc:
+            await pool.drop(session_id, reason=str(exc))
+            if attempt == 0:
+                continue
+            raise web.HTTPBadGateway(text="Unable to connect to the assigned live monitor worker.") from exc
 
     downstream_ws = web.WebSocketResponse(protocols=protocols or None, heartbeat=30.0)
     await downstream_ws.prepare(request)

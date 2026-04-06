@@ -11,6 +11,7 @@ Run with:
 import marimo
 
 __generated_with = "0.22.0"
+
 app = marimo.App(
     width="full",
     app_title="LUME Live Stream Monitor",
@@ -555,3 +556,9 @@ async def interactive_stream_task(
 
 if __name__ == "__main__":
     app.run()
+
+# Preload torch at module-import time so it is in sys.modules before any
+# marimo kernel cell runs.  Placing the import here (after the run guard)
+# avoids a marimo notebook-format violation while still ensuring torch is
+# loaded before virtual_accelerator reaches RpcBackendOptions.
+import torch  # noqa: F401
