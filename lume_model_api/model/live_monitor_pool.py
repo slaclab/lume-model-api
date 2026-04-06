@@ -163,7 +163,9 @@ class SessionPool:
         values = parse_qs(parsed.query).get(SESSION_QUERY_PARAM)
         return values[0] if values else None
 
-    async def allocate_worker(self, session_id: str) -> int:
+    async def allocate_worker(
+        self, session_id: str, exclude_workers: set[int] | None = None,
+    ) -> int:
         async with self._lock:
             now = time.time()
             self._purge_expired_locked(now)
@@ -173,8 +175,9 @@ class SessionPool:
                 return lease.worker_index
 
             used_workers = {lease.worker_index for lease in self._leases.values()}
+            skip = used_workers | (exclude_workers or set())
             for worker_index in range(self.config.worker_count):
-                if worker_index not in used_workers:
+                if worker_index not in skip:
                     self._leases[session_id] = SessionLease(
                         session_id=session_id,
                         worker_index=worker_index,
@@ -358,9 +361,10 @@ async def proxy_http(
             raise web.HTTPBadRequest(text="Missing live monitor session identifier.")
         return await _proxy_http_to_stateless_worker(request, pool)
 
+    failed_workers: set[int] = set()
     for attempt in range(2):
         try:
-            worker_index = await pool.allocate_worker(session_id)
+            worker_index = await pool.allocate_worker(session_id, exclude_workers=failed_workers)
         except PoolFullError as exc:
             raise web.HTTPServiceUnavailable(text=str(exc)) from exc
 
@@ -370,6 +374,7 @@ async def proxy_http(
         except (asyncio.TimeoutError, OSError, web.HTTPException) as exc:
             if isinstance(exc, web.HTTPException):
                 raise
+            failed_workers.add(worker_index)
             await pool.drop(session_id, reason=str(exc))
             if attempt == 0:
                 continue
@@ -432,9 +437,10 @@ async def proxy_websocket(
     protocols = [value.strip() for value in protocol_header.split(",") if value.strip()]
 
     upstream_ws = None
+    failed_workers: set[int] = set()
     for attempt in range(2):
         try:
-            worker_index = await pool.allocate_worker(session_id)
+            worker_index = await pool.allocate_worker(session_id, exclude_workers=failed_workers)
         except PoolFullError as exc:
             raise web.HTTPServiceUnavailable(text=str(exc)) from exc
 
@@ -450,6 +456,7 @@ async def proxy_websocket(
             )
             break  # connected successfully
         except (asyncio.TimeoutError, OSError) as exc:
+            failed_workers.add(worker_index)
             await pool.drop(session_id, reason=str(exc))
             if attempt == 0:
                 continue
