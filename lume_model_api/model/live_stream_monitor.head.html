@@ -120,3 +120,28 @@
   window.WebSocket = SessionWebSocket;
 })();
 </script>
+<script>
+// Allocator session heartbeat — keeps the worker slot reserved while the
+// tab is open.  If the heartbeat expires (tab closed / backgrounded too
+// long), the allocator frees the worker for another user.
+(() => {
+  const heartbeatUrl = "/live-monitor/heartbeat";
+  const allocatorUrl = "/live-monitor/";
+  const intervalMs = 120000; // 2 minutes
+
+  const sendHeartbeat = () => {
+    fetch(heartbeatUrl, { method: "POST", credentials: "same-origin" })
+      .then((resp) => {
+        if (resp.status === 404) {
+          // Session expired in the allocator — redirect to get a new one.
+          window.location.href = allocatorUrl;
+        }
+      })
+      .catch(() => {}); // Ignore network errors silently.
+  };
+
+  // Immediate heartbeat on page load, then every 2 minutes.
+  sendHeartbeat();
+  setInterval(sendHeartbeat, intervalMs);
+})();
+</script>
