@@ -57,7 +57,7 @@ class PoolConfig:
                 "LUME_WORKER_HEADLESS_SERVICE", "lume-live-monitor-worker"
             ),
             namespace=os.environ.get("POD_NAMESPACE", "lume-visualizations"),
-            cluster_domain=os.environ.get("CLUSTER_DOMAIN", "cluster.local"),
+            cluster_domain=os.environ.get("CLUSTER_DOMAIN", ""),
             worker_port=int(os.environ.get("LUME_WORKER_PORT", "2719")),
             session_timeout_seconds=int(
                 os.environ.get("LUME_SESSION_TIMEOUT_SECONDS", "3600")
@@ -97,8 +97,10 @@ class SessionPool:
         host = (
             f"{self.config.worker_statefulset}-{worker_index}."
             f"{self.config.worker_headless_service}."
-            f"{self.config.namespace}.svc.{self.config.cluster_domain}"
+            f"{self.config.namespace}.svc"
         )
+        if self.config.cluster_domain:
+            host = f"{host}.{self.config.cluster_domain}"
         return f"http://{host}:{self.config.worker_port}"
 
     def build_upstream_url(self, request: web.Request, worker_index: int) -> str:
