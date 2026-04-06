@@ -19,7 +19,7 @@ MODEL_INPUT_NAMES = [
     "QUAD:IN20:122:BCTRL",
     "ACCL:IN20:300:L0A_ADES",
     "ACCL:IN20:300:L0A_PDES",
-    "ACCL:IN20:400:L0B_ADES",
+     "ACCL:IN20:400:L0B_ADES",
     "ACCL:IN20:400:L0B_PDES",
     "QUAD:IN20:361:BCTRL",
     "QUAD:IN20:371:BCTRL",
@@ -37,6 +37,11 @@ EXTRA_MACHINE_INPUTS = [
 EXCLUDED_EPICS_PVS = (
     "CAMR:IN20:186:R_DIST",
     "Pulse_length",
+    # is_constant=true in model_config.yaml — zero-range inputs that must not
+    # be fetched from real EPICS or written to the model.
+    "FBCK:BCI0:1:CHRG_S",
+    "ACCL:IN20:300:L0A_ADES",
+    "ACCL:IN20:400:L0B_ADES",
 )
 
 EPICS_INPUT_PVS = [
