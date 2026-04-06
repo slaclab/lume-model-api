@@ -205,7 +205,15 @@ class SessionPool:
             lease = self._leases.get(session_id)
             if lease is not None:
                 lease.active_websockets = max(lease.active_websockets - 1, 0)
-                lease.last_activity = time.time()
+                if lease.active_websockets == 0:
+                    del self._leases[session_id]
+                    LOGGER.info(
+                        "Session %s released (last WebSocket closed, worker %d freed)",
+                        session_id,
+                        lease.worker_index,
+                    )
+                else:
+                    lease.last_activity = time.time()
 
     async def drop(self, session_id: str, reason: str) -> None:
         async with self._lock:
@@ -429,8 +437,14 @@ async def proxy_websocket(
             elif message.type in {WSMsgType.CLOSE, WSMsgType.CLOSED, WSMsgType.ERROR}:
                 break
 
+    d2u_task = asyncio.ensure_future(downstream_to_upstream())
+    u2d_task = asyncio.ensure_future(upstream_to_downstream())
     try:
-        await asyncio.gather(downstream_to_upstream(), upstream_to_downstream())
+        await asyncio.wait({d2u_task, u2d_task}, return_when=asyncio.FIRST_COMPLETED)
+        for task in (d2u_task, u2d_task):
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(d2u_task, u2d_task, return_exceptions=True)
     finally:
         await pool.mark_websocket_closed(session_id)
         await upstream_ws.close()
