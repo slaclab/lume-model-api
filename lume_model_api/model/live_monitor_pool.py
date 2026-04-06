@@ -15,7 +15,6 @@ from aiohttp import ClientSession, ClientTimeout, WSMsgType, web
 
 LOGGER = logging.getLogger(__name__)
 SESSION_QUERY_PARAM = "lume_session"
-SESSION_COOKIE_NAME = "lume_session"
 HOP_BY_HOP_HEADERS = {
     "connection",
     "keep-alive",
@@ -116,9 +115,7 @@ class SessionPool:
             return f"{origin}{path}?{query_string}"
         return f"{origin}{path}"
 
-    def should_redirect(self, request: web.Request, session_id: str | None) -> bool:
-        if session_id is not None:
-            return False
+    def is_navigation_request(self, request: web.Request) -> bool:
         if request.method not in {"GET", "HEAD"}:
             return False
         if request.path not in {self.config.base_url, f"{self.config.base_url}/"}:
@@ -131,16 +128,17 @@ class SessionPool:
         )
 
     def build_redirect_url(self, request: web.Request, session_id: str) -> str:
+        canonical_path = f"{self.config.base_url}/"
         query = list(request.rel_url.query.items())
         query.append((SESSION_QUERY_PARAM, session_id))
-        return str(request.rel_url.with_query(query))
+        return str(request.rel_url.with_path(canonical_path).with_query(query))
+
+    def build_canonical_url(self, request: web.Request) -> str:
+        canonical_path = f"{self.config.base_url}/"
+        return str(request.rel_url.with_path(canonical_path))
 
     def session_id_from_request(self, request: web.Request) -> str | None:
         session_id = request.query.get(SESSION_QUERY_PARAM)
-        if session_id:
-            return session_id
-
-        session_id = request.cookies.get(SESSION_COOKIE_NAME)
         if session_id:
             return session_id
 
@@ -291,27 +289,6 @@ def _copy_request_headers(request: web.Request) -> dict[str, str]:
     return headers
 
 
-def _set_session_cookie(
-    response: web.StreamResponse,
-    request: web.Request,
-    pool: SessionPool,
-    session_id: str | None,
-) -> None:
-    if not session_id:
-        return
-
-    forwarded_proto = request.headers.get("X-Forwarded-Proto", request.scheme)
-    response.set_cookie(
-        SESSION_COOKIE_NAME,
-        session_id,
-        max_age=pool.config.session_timeout_seconds,
-        path=pool.config.base_url or "/",
-        httponly=True,
-        samesite="Lax",
-        secure=forwarded_proto == "https",
-    )
-
-
 def _copy_response_headers(headers: Iterable[tuple[str, str]]) -> dict[str, str]:
     result: dict[str, str] = {}
     for key, value in headers:
@@ -328,16 +305,15 @@ async def healthz(request: web.Request) -> web.Response:
 
 async def proxy_request(request: web.Request) -> web.StreamResponse:
     pool: SessionPool = request.app["pool"]
-    session_id = pool.session_id_from_request(request)
 
-    if pool.should_redirect(request, session_id):
+    if request.path == pool.config.base_url and request.method in {"GET", "HEAD"}:
+        raise web.HTTPTemporaryRedirect(location=pool.build_canonical_url(request))
+
+    if pool.is_navigation_request(request) and request.query.get(SESSION_QUERY_PARAM) is None:
         session_id = uuid.uuid4().hex
-        response = web.Response(
-            status=307,
-            headers={"Location": pool.build_redirect_url(request, session_id)},
-        )
-        _set_session_cookie(response, request, pool, session_id)
-        return response
+        raise web.HTTPTemporaryRedirect(location=pool.build_redirect_url(request, session_id))
+
+    session_id = pool.session_id_from_request(request)
 
     is_websocket = request.headers.get("Upgrade", "").lower() == "websocket"
     if is_websocket:
@@ -364,7 +340,6 @@ async def proxy_http(
 
         try:
             response = await _forward_http_request(request, pool, worker_index)
-            _set_session_cookie(response, request, pool, session_id)
             return response
         except (asyncio.TimeoutError, OSError, web.HTTPException) as exc:
             if isinstance(exc, web.HTTPException):
