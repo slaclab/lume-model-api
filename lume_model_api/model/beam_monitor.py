@@ -14,7 +14,7 @@ from typing import Mapping, Optional
 import numpy as np
 
 from lume_visualizations.config import (
-    EXTRA_MACHINE_INPUTS,
+    EPICS_INPUT_PVS,
     MODEL_INPUT_NAMES,
     SCREEN_CONFIGS,
     resolve_lcls_lattice_path,
@@ -318,10 +318,9 @@ class SyntheticLiveImageSource:
         from lume_visualizations.fake_epics_ioc import FAKE_INPUT_SPECS
 
         defaults = {spec.pv_name: float(spec.default) for spec in FAKE_INPUT_SPECS}
-        defaults.setdefault("CAMR:IN20:186:R_DIST", 423.867825)
         self.default_inputs = {
             name: float(defaults.get(name, 0.0))
-            for name in [*MODEL_INPUT_NAMES, *EXTRA_MACHINE_INPUTS]
+            for name in EPICS_INPUT_PVS
         }
         self.current_inputs = dict(self.default_inputs)
         self.image_shape = image_shape
@@ -331,14 +330,14 @@ class SyntheticLiveImageSource:
         self.current_inputs = dict(self.default_inputs)
 
     def get_model_input_names(self) -> list[str]:
-        return list(MODEL_INPUT_NAMES)
+        return list(EPICS_INPUT_PVS)
 
     def get_current_inputs(self, input_names: Optional[list[str]] = None) -> dict[str, float]:
         names = input_names or self.get_model_input_names()
         return {name: float(self.current_inputs[name]) for name in names}
 
     def get_writable_model_input_names(self) -> list[str]:
-        return list(MODEL_INPUT_NAMES)
+        return list(EPICS_INPUT_PVS)
 
     def snapshot(
         self,
@@ -372,7 +371,13 @@ class SyntheticLiveImageSource:
 
         xrms_um = max(60.0, screen_scale * xrms_base + solenoid_term + 22.0 * np.sin(focus_term))
         yrms_um = max(60.0, screen_scale * yrms_base - 0.6 * solenoid_term + 18.0 * np.cos(focus_term))
-        sigma_z_um = max(200.0, 140.0 * self.current_inputs["Pulse_length"] + 15.0 * np.cos(phase_term))
+        sigma_z_um = max(
+            200.0,
+            220.0
+            + 120.0 * self.current_inputs["FBCK:BCI0:1:CHRG_S"]
+            + 0.04 * (xrms_base + yrms_base)
+            + 18.0 * np.cos(phase_term),
+        )
         norm_emit_x_um_rad = max(0.08, 0.42 + 0.03 * np.sin(focus_term + 0.4 * phase_term))
         norm_emit_y_um_rad = max(0.08, 0.39 + 0.03 * np.cos(focus_term - 0.3 * phase_term))
 
