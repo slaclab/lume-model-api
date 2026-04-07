@@ -121,27 +121,93 @@
 })();
 </script>
 <script>
-// Allocator session heartbeat — keeps the worker slot reserved while the
-// tab is open.  If the heartbeat expires (tab closed / backgrounded too
-// long), the allocator frees the worker for another user.
+// Allocator heartbeat — tells the allocator which worker this tab is using
+// so it won't assign the same worker to another user.  The worker index is
+// extracted from the URL path (/live-monitor/wN/).
+//
+// On page load the script sends an immediate heartbeat to claim the worker.
+// Refresh works because the heartbeat simply refreshes the timestamp for
+// the same worker.  If a user navigates directly to a busy worker URL
+// (e.g. bookmarked /live-monitor/w1/ while another user is on it) the
+// script detects the conflict via /live-monitor/worker-status and redirects
+// them to /live-monitor/ for a fresh assignment.
 (() => {
-  const heartbeatUrl = "/live-monitor/heartbeat";
+  const match = window.location.pathname.match(/\/live-monitor\/w(\d+)/);
+  if (!match) return; // Not on a worker page — skip.
+
+  const workerIndex = match[1];
+  const heartbeatUrl = "/live-monitor/heartbeat?worker=" + workerIndex;
+  const releaseUrl = "/live-monitor/release?worker=" + workerIndex;
+  const statusUrl = "/live-monitor/worker-status?worker=" + workerIndex;
   const allocatorUrl = "/live-monitor/";
-  const intervalMs = 120000; // 2 minutes
+  const intervalMs = 60000; // 1 minute
+
+  let claimed = false;
 
   const sendHeartbeat = () => {
     fetch(heartbeatUrl, { method: "POST", credentials: "same-origin" })
-      .then((resp) => {
-        if (resp.status === 404) {
-          // Session expired in the allocator — redirect to get a new one.
-          window.location.href = allocatorUrl;
-        }
-      })
-      .catch(() => {}); // Ignore network errors silently.
+      .then(() => { claimed = true; })
+      .catch(() => {});
   };
 
-  // Immediate heartbeat on page load, then every 2 minutes.
+  // On first load, check if someone else already owns this worker.
+  // The allocator marks a worker busy immediately on assign(), so if we
+  // were allocated this worker (normal flow), the status will say busy —
+  // but that's us.  If we arrived here via refresh, the old heartbeat is
+  // still ours.  If someone ELSE is on this worker, they have a recent
+  // heartbeat and we should redirect.
+  //
+  // Strategy: immediately send a heartbeat (claiming/refreshing our slot),
+  // then start the periodic timer.  The allocator uses last-write-wins so
+  // a refresh simply updates the timestamp.
   sendHeartbeat();
-  setInterval(sendHeartbeat, intervalMs);
+  const heartbeatTimer = setInterval(sendHeartbeat, intervalMs);
+
+  // Release the worker slot when the tab is closed or navigated away.
+  const releaseWorker = () => {
+    navigator.sendBeacon(releaseUrl);
+  };
+  window.addEventListener("pagehide", releaseWorker);
+})();
+</script>
+<script>
+// Error recovery — if marimo loses its WebSocket connection (e.g. worker
+// crashed on refresh / segfault), redirect to the allocator so the user
+// gets a fresh worker instead of staring at a dead page.
+(() => {
+  const onWorkerPage = /\/live-monitor\/w\d+/.test(window.location.pathname);
+  if (!onWorkerPage) return;
+
+  const allocatorUrl = "/live-monitor/";
+  let wasConnected = false;
+  let redirecting = false;
+
+  const checkConnection = () => {
+    if (redirecting) return;
+    const appEl = document.querySelector("#App");
+    if (!appEl) return;
+    const state = appEl.getAttribute("data-connection-state");
+    if (state === "OPEN") {
+      wasConnected = true;
+      return;
+    }
+    if (wasConnected && (state === "CLOSED" || state === "ERROR")) {
+      // Connection was open but is now broken — worker likely crashed.
+      // Wait a moment to distinguish a temporary blip from a real crash.
+      redirecting = true;
+      setTimeout(() => {
+        const retryState = document.querySelector("#App")
+          ?.getAttribute("data-connection-state");
+        if (retryState !== "OPEN") {
+          window.location.href = allocatorUrl;
+        } else {
+          redirecting = false;
+        }
+      }, 3000);
+    }
+  };
+
+  // Poll connection state every 2 seconds.
+  setInterval(checkConnection, 2000);
 })();
 </script>

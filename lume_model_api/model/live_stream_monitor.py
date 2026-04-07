@@ -27,10 +27,12 @@ def imports():
     import warnings
     from datetime import datetime
     from pathlib import Path
+    from zoneinfo import ZoneInfo
 
     import matplotlib
 
     matplotlib.use("Agg")
+    matplotlib.rcParams["timezone"] = "US/Pacific"
     import marimo as mo
 
     warnings.filterwarnings("ignore")
@@ -50,6 +52,8 @@ def imports():
     from lume_visualizations.epics_controls import EpicsInputProvider
     from lume_visualizations.fake_epics_ioc import FAKE_INPUT_SPECS
 
+    PACIFIC_TZ = ZoneInfo("US/Pacific")
+
     return (
         asyncio,
         datetime,
@@ -57,6 +61,7 @@ def imports():
         FAKE_INPUT_SPECS,
         mo,
         MANUAL_INPUT_PVS,
+        PACIFIC_TZ,
         SCREEN_CONFIGS,
         SCREEN_KEYS,
         BeamDashboard,
@@ -74,6 +79,7 @@ def header(mo):
 @app.cell
 def source_setup(EpicsInputProvider, EPICS_INPUT_PVS, FAKE_INPUT_SPECS, StagedModelImageSource):
     source = StagedModelImageSource.create_default()
+    interactive_source = StagedModelImageSource.create_default()
     provider = EpicsInputProvider()
     # Keep fake and real EPICS deployments on the same explicit PV contract.
     model_input_names = list(EPICS_INPUT_PVS)
@@ -82,7 +88,7 @@ def source_setup(EpicsInputProvider, EPICS_INPUT_PVS, FAKE_INPUT_SPECS, StagedMo
     # being model-writable variables.
     _default_map = {spec.pv_name: spec.default for spec in FAKE_INPUT_SPECS}
     initial_inputs = {name: float(_default_map.get(name, 0.0)) for name in model_input_names}
-    return initial_inputs, model_input_names, provider, source
+    return initial_inputs, interactive_source, model_input_names, provider, source
 
 
 @app.cell
@@ -196,7 +202,7 @@ def interactive_controls(mo, SCREEN_KEYS):
             interactive_show_twiss_a_beta,
             interactive_show_twiss_b_beta,
         ],
-        gap="0.6rem",
+        gap="1.0",
         justify="start",
     )
     return (
@@ -215,59 +221,60 @@ def interactive_controls(mo, SCREEN_KEYS):
 
 @app.cell
 def interactive_slider_controls(
-    FAKE_INPUT_SPECS, MANUAL_INPUT_PVS, initial_inputs, mo
+    FAKE_INPUT_SPECS,
+    MANUAL_INPUT_PVS,
+    initial_inputs,
+    mo,
+    set_interactive_eval_trigger,
+    slider_display_values,
 ):
     slider_labels = {
-        "SOLN:IN20:121:BCTRL": "Solenoid 121",
-        "QUAD:IN20:121:BCTRL": "Quad 121",
-        "QUAD:IN20:122:BCTRL": "Quad 122",
-        "ACCL:IN20:300:L0A_PDES": "L0A phase",
-        "ACCL:IN20:400:L0B_PDES": "L0B phase",
-        "QUAD:IN20:361:BCTRL": "Quad 361",
-        "QUAD:IN20:371:BCTRL": "Quad 371",
-        "QUAD:IN20:425:BCTRL": "Quad 425",
-        "QUAD:IN20:441:BCTRL": "Quad 441",
-        "QUAD:IN20:511:BCTRL": "Quad 511",
-        "QUAD:IN20:525:BCTRL": "Quad 525",
+        "SOLN:IN20:121:BCTRL": "SOLN:IN20:121:BCTRL",
+        "QUAD:IN20:121:BCTRL": "QUAD:IN20:121:BCTRL",
+        "QUAD:IN20:122:BCTRL": "QUAD:IN20:122:BCTRL",
+        "ACCL:IN20:300:L0A_PDES": "ACCL:IN20:300:L0A_PDES",
+        "ACCL:IN20:400:L0B_PDES": "ACCL:IN20:400:L0B_PDES",
+        "QUAD:IN20:361:BCTRL": "QUAD:IN20:361:BCTRL",
+        "QUAD:IN20:371:BCTRL": "QUAD:IN20:371:BCTRL",
+        "QUAD:IN20:425:BCTRL": "QUAD:IN20:425:BCTRL",
+        "QUAD:IN20:441:BCTRL": "QUAD:IN20:441:BCTRL",
+        "QUAD:IN20:511:BCTRL": "QUAD:IN20:511:BCTRL",
+        "QUAD:IN20:525:BCTRL": "QUAD:IN20:525:BCTRL",
     }
     slider_specs = {spec.pv_name: spec for spec in FAKE_INPUT_SPECS}
-
-    def slider_step(pv_name: str) -> float:
-        spec = slider_specs[pv_name]
-        span = float(spec.maximum - spec.minimum)
-        if span <= 0:
-            return 0.01
-        if span < 0.1:
-            return span / 100.0
-        if span < 1.0:
-            return span / 200.0
-        return span / 150.0
+    # Resolve display overrides once (set by the "apply machine values" button).
+    _display_vals = slider_display_values()
 
     interactive_sliders = {}
     slider_rows = []
     current_row = []
     for index, pv_name in enumerate(MANUAL_INPUT_PVS):
         spec = slider_specs[pv_name]
-        slider = mo.ui.slider(
+        slider = mo.ui.number(
             start=float(spec.minimum),
             stop=float(spec.maximum),
-            step=slider_step(pv_name),
-            value=float(initial_inputs[pv_name]),
+            step=1e-6,
+            value=float(_display_vals.get(pv_name, initial_inputs[pv_name])),
             label=slider_labels.get(pv_name, pv_name),
-            show_value=True,
-            include_input=True,
-            full_width=True,
+            full_width=False,
+            on_change=lambda v: set_interactive_eval_trigger(lambda x: x + 1),
         )
         interactive_sliders[pv_name] = slider
         current_row.append(slider)
         if len(current_row) == 4 or index == len(MANUAL_INPUT_PVS) - 1:
             slider_rows.append(
-                mo.hstack(current_row, widths="equal", gap="0.6rem")
+                mo.hstack(current_row, widths=None, gap="1rem")
             )
             current_row = []
 
-    interactive_slider_controls_ui = mo.vstack(slider_rows, gap="0.3rem")
+    interactive_slider_controls_ui = mo.vstack(slider_rows, gap="0.3rem", justify="start", align="start")
     return interactive_slider_controls_ui, interactive_sliders
+
+
+@app.cell
+def apply_machine_values_button(mo):
+    apply_machine_btn = mo.ui.run_button(label="Apply current machine values")
+    return (apply_machine_btn,)
 
 
 @app.cell
@@ -276,22 +283,28 @@ def state(mo):
         "Waiting for live monitoring tab."
     )
     interactive_status_text, set_interactive_status = mo.state(
-        "Open the interactive tab to start the fake stream."
+        "Ready for interactive exploration."
     )
     live_run_token, set_live_run_token = mo.state(0)
-    interactive_run_token, set_interactive_run_token = mo.state(0)
     active_tab, set_active_tab = mo.state("Live monitoring")
+    # Incremented by slider on_change callbacks — triggers interactive_eval.
+    interactive_eval_trigger, set_interactive_eval_trigger = mo.state(0)
+    # Updated by the "apply machine values" button — causes slider cell to
+    # re-run with new default values so the browser re-renders them.
+    slider_display_values, set_slider_display_values = mo.state({})
     return (
         active_tab,
-        interactive_run_token,
+        interactive_eval_trigger,
         interactive_status_text,
         live_run_token,
         live_status_text,
         set_active_tab,
-        set_interactive_run_token,
+        set_interactive_eval_trigger,
         set_interactive_status,
         set_live_run_token,
         set_live_status,
+        set_slider_display_values,
+        slider_display_values,
     )
 
 
@@ -362,6 +375,7 @@ def interactive_visibility_sync(
 @app.cell
 def layout(
     active_tab,
+    apply_machine_btn,
     interactive_controls_ui,
     interactive_dashboard_widget,
     interactive_slider_controls_ui,
@@ -378,14 +392,17 @@ def layout(
         [live_controls_ui, live_dashboard_widget, live_status],
         gap="0.75rem",
     )
-    # Controls and sliders sit above the full-width dashboard so the
-    # dashboard is not squeezed by a side panel.
     interactive_content = mo.vstack(
         [
             interactive_controls_ui,
-            interactive_slider_controls_ui,
-            interactive_status,
             interactive_dashboard_widget,
+            mo.hstack(
+                [interactive_slider_controls_ui, apply_machine_btn],
+                widths=[0.7, 0.3],
+                gap="0.2rem",
+                align="end",
+            ),
+            interactive_status,
         ],
         gap="0.5rem",
     )
@@ -408,17 +425,8 @@ def stop_live_when_hidden(active_tab, live_run_token, set_live_run_token):
 
 
 @app.cell
-def stop_interactive_when_hidden(
-    active_tab,
-    interactive_run_token,
-    set_interactive_run_token,
-):
-    if active_tab() != "Interactive offline changes":
-        set_interactive_run_token(interactive_run_token() + 1)
-
-
-@app.cell
 async def live_stream_task(
+    PACIFIC_TZ,
     SCREEN_CONFIGS,
     active_tab,
     asyncio,
@@ -457,17 +465,17 @@ async def live_stream_task(
         ):
             try:
                 inputs = provider.read_inputs(model_input_names)
-                now = datetime.now()
+                now = datetime.now(tz=PACIFIC_TZ)
                 frame = source.snapshot(
                     live_screen_dropdown.value,
                     control_updates=inputs,
                     x_axis_value=now,
                     frame_index=shot_index,
-                    image_caption=now.strftime("%H:%M:%S"),
+                    image_caption=now.strftime("%I:%M:%S %p"),
                 )
                 live_dashboard.update(frame, live_image_scale_mode.value)
                 set_live_status(
-                    f"Read {len(inputs)} EPICS inputs at {now.strftime('%H:%M:%S')} for {live_screen_dropdown.value}."
+                    f"Read {len(inputs)} EPICS inputs at {now.strftime('%I:%M:%S %p')} for {live_screen_dropdown.value}."
                 )
                 shot_index += 1
             except Exception as exc:
@@ -478,80 +486,79 @@ async def live_stream_task(
 
 
 @app.cell
-async def interactive_stream_task(
+def interactive_eval(
     MANUAL_INPUT_PVS,
+    PACIFIC_TZ,
     SCREEN_CONFIGS,
-    active_tab,
-    asyncio,
     datetime,
     interactive_dashboard,
+    interactive_eval_trigger,
     interactive_image_scale_mode,
-    interactive_run_token,
     interactive_screen_dropdown,
     interactive_sliders,
-    mo,
-    set_interactive_run_token,
+    interactive_source,
     set_interactive_status,
-    source,
 ):
-    mo.stop(active_tab() != "Interactive offline changes")
-
-    interactive_token_value = interactive_run_token() + 1
-    set_interactive_run_token(interactive_token_value)
+    """Reactively evaluate the model whenever slider values change."""
+    print(f"[interactive_eval] triggered — eval_trigger={interactive_eval_trigger()}, slider values={[interactive_sliders[pv].value for pv in list(MANUAL_INPUT_PVS)[:3]]}...")
+    manual_values = {
+        name: float(interactive_sliders[name].value)
+        for name in MANUAL_INPUT_PVS
+    }
     interactive_screen_config = SCREEN_CONFIGS[interactive_screen_dropdown.value]
     interactive_dashboard.reset(
         interactive_screen_config.label,
-        "Time",
+        "Snapshot",
         "",
-        "time",
+        "value",
         image_placeholder=interactive_screen_config.image_message,
     )
-    source.reset()
+    now = datetime.now(tz=PACIFIC_TZ)
+    frame = interactive_source.snapshot(
+        interactive_screen_dropdown.value,
+        control_updates=manual_values,
+        x_axis_value=0.0,
+        frame_index=0,
+        image_caption=now.strftime("%I:%M:%S %p"),
+        title_suffix="manual",
+    )
+    interactive_dashboard.update(frame, interactive_image_scale_mode.value)
+    set_interactive_status(
+        f"Evaluated at {now.strftime('%I:%M:%S %p')} for {interactive_screen_dropdown.value}."
+    )
 
-    async def _run_interactive_stream(active_token: int) -> None:
-        shot_index = 0
-        last_emitted_at = None
-        last_manual_values = None
-        while (
-            active_token == interactive_run_token()
-            and active_tab() == "Interactive offline changes"
-        ):
-            manual_values = {
-                name: float(interactive_sliders[name].value)
-                for name in MANUAL_INPUT_PVS
-            }
-            should_emit = False
-            now = datetime.now()
-            if last_manual_values is None or manual_values != last_manual_values:
-                should_emit = True
-            elif (
-                last_emitted_at is None
-                or (now - last_emitted_at).total_seconds() >= 1.0
-            ):
-                should_emit = True
 
-            if should_emit:
-                frame = source.snapshot(
-                    interactive_screen_dropdown.value,
-                    control_updates=manual_values,
-                    x_axis_value=now,
-                    frame_index=shot_index,
-                    image_caption=now.strftime("%H:%M:%S"),
-                    title_suffix=None,
-                )
-                interactive_dashboard.update(
-                    frame, interactive_image_scale_mode.value
-                )
-                set_interactive_status(
-                    f"Offline stream updated at {now.strftime('%H:%M:%S')} using manual controls for {interactive_screen_dropdown.value}."
-                )
-                shot_index += 1
-                last_emitted_at = now
-                last_manual_values = manual_values
+@app.cell
+def apply_machine_values(
+    MANUAL_INPUT_PVS,
+    apply_machine_btn,
+    mo,
+    model_input_names,
+    provider,
+    set_interactive_status,
+    set_slider_display_values,
+):
+    """Fetch current EPICS values and re-render sliders with those values.
 
-            await asyncio.sleep(0.2)
-
-    asyncio.create_task(_run_interactive_stream(interactive_token_value))
+    Setting slider_display_values causes interactive_slider_controls to
+    re-run, which re-creates the mo.ui.number widgets with new default values.
+    The browser re-renders them, and interactive_eval re-runs because its
+    interactive_sliders dependency changed.
+    """
+    mo.stop(not apply_machine_btn.value)
+    try:
+        live_values = provider.read_inputs(model_input_names)
+        print(f"[apply_machine_values] Got {len(live_values)} EPICS values: { {k: round(v, 4) for k, v in list(live_values.items())[:3]} }...")
+        new_display = {
+            pv: float(live_values[pv]) for pv in MANUAL_INPUT_PVS if pv in live_values
+        }
+        set_slider_display_values(new_display)
+        set_interactive_status(
+            f"Applied {len(new_display)} machine values to sliders."
+        )
+    except Exception as exc:
+        print(f"[apply_machine_values] Exception: {exc}")
+        set_interactive_status(f"Failed to read machine values: {exc}")
 
 
 if __name__ == "__main__":
@@ -561,4 +568,13 @@ if __name__ == "__main__":
 # marimo kernel cell runs.  Placing the import here (after the run guard)
 # avoids a marimo notebook-format violation while still ensuring torch is
 # loaded before virtual_accelerator reaches RpcBackendOptions.
+import os as _os  # noqa: E402
 import torch  # noqa: F401
+
+# Pin torch thread count to match cgroup CPU allocation.  Without this,
+# torch sees all host CPUs and spawns too many threads, causing contention
+# inside containers with a cgroup CPU limit.
+_num_threads = int(_os.environ.get("TORCH_NUM_THREADS", _os.environ.get("OMP_NUM_THREADS", "0")))
+if _num_threads > 0:
+    torch.set_num_threads(_num_threads)
+    torch.set_num_interop_threads(max(1, _num_threads))

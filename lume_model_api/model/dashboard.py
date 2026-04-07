@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 import matplotlib
 
@@ -12,6 +13,8 @@ import matplotlib.gridspec as gridspec
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 import numpy as np
+
+PACIFIC_TZ = ZoneInfo("US/Pacific")
 
 
 @dataclass(frozen=True)
@@ -113,8 +116,9 @@ class BeamDashboard:
             transform=self.ax_img.transAxes,
             fontsize=11,
         )
-        self.ax_img.set_xticks([])
-        self.ax_img.set_yticks([])
+        self.ax_img.set_xlabel("x  (pixel)", fontsize=8)
+        self.ax_img.set_ylabel("y  (pixel)", fontsize=8)
+        self.ax_img.tick_params(labelsize=7)
 
         self.ax_ps = self.fig.add_subplot(gs[0, 1])
         self._style_ax(self.ax_ps)
@@ -374,8 +378,11 @@ class BeamDashboard:
 
     def _configure_x_axis(self) -> None:
         if self.x_axis_mode == "time":
-            self.ax_ts.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M:%S"))
-            self.ax_ts.set_xlabel("Time", fontsize=8)
+            self.ax_ts.xaxis.set_major_formatter(
+                mdates.DateFormatter("%I:%M:%S %p", tz=PACIFIC_TZ)
+            )
+            self.ax_ts.tick_params(axis='x', labelrotation=30)
+            self.ax_ts.set_xlabel("Time (Pacific)", fontsize=8)
         else:
             unit_suffix = f"  ({self.x_axis_unit})" if self.x_axis_unit else ""
             self.ax_ts.set_xlabel(f"{self.x_axis_label}{unit_suffix}", fontsize=8)
@@ -524,7 +531,7 @@ class BeamDashboard:
 
     def _pad_time_bounds(self, values):
         if len(values) == 0:
-            now = datetime.now()
+            now = datetime.now(tz=PACIFIC_TZ)
             return (now - timedelta(seconds=1), now + timedelta(seconds=1))
         vmin = min(values)
         vmax = max(values)

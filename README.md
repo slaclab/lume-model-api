@@ -21,13 +21,18 @@ display between `OTR2`, `OTR3`, and `OTR4`.
 
 Path: `lume_visualizations/live_stream_monitor.py`
 
-This app has two tabs.
+This app has two tabs:
 
-- `Live monitoring` continuously reads the staged model input PVs from EPICS,
-	pushes them through the model, and plots scalar histories versus time.
-- `Interactive offline changes` replaces the EPICS input stream with manual
-	sliders for the requested injector controls and keeps a fake time stream going
-	even while the user is idle.
+- **Live monitoring** — continuously reads the staged model input PVs from EPICS,
+  pushes them through the model, and plots scalar histories versus time. The
+  timeseries x-axis shows Pacific time.
+- **Interactive offline changes** — lets you set model inputs via number boxes
+  and evaluate the model on demand. The dashboard updates reactively whenever
+  you change a value. A **"Apply current machine values"** button fetches the
+  current EPICS PV values and loads them into the input boxes.
+
+The live and interactive tabs use **separate model instances** so they never
+interfere with each other.
 
 The EPICS input layer lives in `lume_visualizations/epics_controls.py` so it
 can be swapped out without changing the marimo UI code.
@@ -149,50 +154,100 @@ docker run --rm -p 2718:2718 lume-visualizations \
 	lume-quad-scan --host 0.0.0.0 --port 2718 --headless
 ```
 
-## Kubernetes
+## Kubernetes deployment (pool branch)
 
-Kubernetes manifests live under `deploy/kubernetes`.
+Kubernetes manifests live under `deploy/kubernetes/`.
 
-- `namespace.yaml` — creates the `lume-visualizations` namespace.
-- `configmap.yaml` — provides the `LCLS_LATTICE` path used in the container.
-- `configmap-epics-fake.yaml` — EPICS config for the **in-pod fake IOC** (local/staging).
-- `configmap-epics-real.yaml` — EPICS config pointing at the **real CA gateway** (production).
-- `quad-scan.yaml` — deploys the quad scan app at `/quad-scan`.
-- `live-monitor.yaml` — deploys the live monitor app at `/live-monitor` via `marimo run`.
-- `ingress.yaml` — routes both apps through a single hostname with WebSocket upgrade headers.
-- `kustomization.yaml` — applies the full stack.
+### Architecture
+
+The live monitor runs as a **5-worker StatefulSet** behind a lightweight
+**allocator** that assigns each browser session to a dedicated worker. This is
+required because marimo in `run` mode cannot handle multiple concurrent
+sessions (torch double-load causes segfaults).
+
+```
+Browser → /live-monitor/ → nginx-ingress → Allocator (307 redirect)
+Browser → /live-monitor/wN/ → nginx-ingress → Worker N (marimo directly)
+```
+
+Each worker runs `marimo run` with `--base-url /live-monitor/wN`. The allocator
+tracks worker occupancy via heartbeats sent from client-side JavaScript.
+
+### ConfigMap strategy
+
+Some files are mounted via ConfigMap to allow rapid iteration without rebuilding
+the Docker image:
+
+| File | In ConfigMap? | Why |
+|------|:---:|-----|
+| `live_stream_monitor.py` | Yes | UI/dashboard code changes frequently |
+| `live_stream_monitor.css` | Yes | Styling tweaks |
+| `live_stream_monitor.head.html` | Yes | Session JS, heartbeat, error-recovery |
+| `dashboard.py` | Yes | Plot layout, timezone, axis labels |
+| `live_monitor_allocator.py` | Yes | Allocator routing logic |
+| `beam_monitor.py` | No | Stable model interface, in Docker image |
+| `config.py` | No | PV definitions, in Docker image |
+| `epics_controls.py` | No | EPICS reader, in Docker image |
+
+**Trade-off:** ConfigMap-mounted files can be updated with `kubectl apply -k .`
+without a Docker rebuild (seconds vs minutes). The downside is the source must
+be kept in sync between `lume_visualizations/` and `deploy/kubernetes/live-monitor-ui/`.
+Files that rarely change stay in the Docker image for simplicity.
+
+### Manifest files
+
+| File | Purpose |
+|------|---------|
+| `namespace.yaml` | Creates the `lume-visualizations` namespace |
+| `configmap.yaml` | Provides the `LCLS_LATTICE` path |
+| `configmap-epics-fake.yaml` | EPICS config for the in-pod fake IOC |
+| `configmap-epics-real.yaml` | EPICS config for the real CA gateway |
+| `live-monitor.yaml` | Allocator Deployment, per-pod Services (w0–w4), StatefulSet |
+| `ingress.yaml` | Per-worker paths + catch-all to allocator |
+| `quad-scan.yaml` | Quad scan app Deployment |
+| `quad-scan-ingress.yaml` | Ingress for the quad scan app |
+| `kustomization.yaml` | Applies everything, ConfigMapGenerator, image tag override |
+
+### Performance tuning
+
+The Docker image container sees all host CPUs but is cgroup-limited to 2 cores.
+Without thread pinning, torch and OpenMP spawn too many threads and contend
+heavily. The StatefulSet sets `OMP_NUM_THREADS=2`, `MKL_NUM_THREADS=2`,
+`OPENBLAS_NUM_THREADS=2`, and `TORCH_NUM_THREADS=2` to match the CPU limit.
+The app also calls `torch.set_num_threads()` at import time. Without this fix,
+model evaluation takes ~5–10 s per shot; with it, ~180 ms.
 
 ### Switching between fake and real EPICS
 
-Open `kustomization.yaml` and change the EPICS ConfigMap resource to one of:
+Open `kustomization.yaml` and change the EPICS ConfigMap resource:
 
 ```yaml
 resources:
-  - configmap-epics-fake.yaml   # in-pod fake IOC (default)
+  - configmap-epics-fake.yaml   # in-pod fake IOC (local/staging)
   # - configmap-epics-real.yaml # real facility CA gateway
 ```
-
-The fake-IOC ConfigMap sets `LUME_START_FAKE_EPICS=1` and points the CA client at
-`127.0.0.1`. The real ConfigMap sets `LUME_START_FAKE_EPICS=0` and points at the
-CA gateway IP defined in that file — replace `134.79.169.20` with the actual
-address for your site before deploying to production.
-
-### Ingress note
-
-`ingress.yaml` passes `Upgrade`/`Connection` headers via a
-`configuration-snippet` annotation to support `marimo run`'s WebSocket reactive
-updates over HTTPS. This requires `allow-snippet-annotations: "true"` in the
-`ingress-nginx` controller ConfigMap. Check your cluster's ingress controller
-settings if reactive updates do not work after deploy.
 
 ### Deploy
 
 ```bash
-kubectl apply -k deploy/kubernetes
+cd deploy/kubernetes
+kubectl apply -k .
+kubectl rollout status statefulset/lume-live-monitor-worker -n lume-visualizations
 ```
 
-Before deploying, update the image tag in the manifests and confirm the ingress
-host matches your cluster's hostname.
+Clean up stale ConfigMaps after deploy:
+
+```bash
+kubectl get configmaps -n lume-visualizations | grep live-monitor-ui
+kubectl delete configmap -n lume-visualizations <old-hash>
+```
+
+### Changing worker count
+
+1. In `live-monitor.yaml`: change `LUME_WORKER_COUNT`, StatefulSet `replicas`,
+   add/remove per-pod Service blocks.
+2. In `ingress.yaml`: add/remove `/live-monitor/wN` path entries.
+3. Apply: `kubectl apply -k .`
 
 ## GitHub Actions
 

@@ -192,6 +192,8 @@ class StagedModelImageSource:
         if control_updates:
             writable_updates = self._filter_writable_updates(control_updates)
             if writable_updates:
+                if title_suffix=="manual":
+                    print(writable_updates)
                 self.model.set(writable_updates)
 
         pvs: list[str] = [
@@ -214,6 +216,8 @@ class StagedModelImageSource:
             )
 
         result = self.model.get(pvs)
+        if title_suffix=="manual":
+            print("Result:", result)
         beam = result.get(screen.particle_source)
         image = result.get(screen.image_pv) if screen.image_pv else None
         xrms_um, yrms_um, sigma_z_um, emit_x_um, emit_y_um = self._extract_scalars(
