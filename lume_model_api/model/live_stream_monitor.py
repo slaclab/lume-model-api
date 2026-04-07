@@ -154,16 +154,15 @@ def live_controls(MODEL_INFO, mo, SCREEN_KEYS, model_dropdown):
     live_controls_ui = mo.vstack(
         [
             mo.hstack(
-                [
-                    mo.hstack(
-                        [live_screen_dropdown, live_poll_period_slider, live_image_scale_mode],
-                        gap="1.0rem",
-                        justify="start",
-                    ),
-                    mo.hstack([model_dropdown, _model_info], gap="0.5rem", align="center"),
-                ],
-                justify="space-between",
+                [model_dropdown, _model_info],
+                gap="0.5rem",
+                justify="start",
                 align="center",
+            ),
+            mo.hstack(
+                [live_screen_dropdown, live_poll_period_slider, live_image_scale_mode],
+                gap="1.0rem",
+                justify="start",
             ),
             mo.hstack(
                 [
@@ -226,8 +225,14 @@ def interactive_controls(MODEL_INFO, mo, SCREEN_KEYS, model_dropdown):
         + "<br><br>".join(_rows)
         + "</div></details>"
     )
-    interactive_controls_ui = mo.hstack(
+    interactive_controls_ui = mo.vstack(
         [
+            mo.hstack(
+                [model_dropdown, _model_info],
+                gap="0.5rem",
+                justify="start",
+                align="center",
+            ),
             mo.hstack(
                 [
                     interactive_screen_dropdown,
@@ -244,10 +249,8 @@ def interactive_controls(MODEL_INFO, mo, SCREEN_KEYS, model_dropdown):
                 gap="1.0",
                 justify="start",
             ),
-            mo.hstack([model_dropdown, _model_info], gap="0.5rem", align="center"),
         ],
-        justify="space-between",
-        align="center",
+        gap="0.8rem",
     )
     return (
         interactive_controls_ui,
