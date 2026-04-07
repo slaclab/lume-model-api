@@ -200,10 +200,10 @@ class BeamDashboard:
         self.ax_twiss = self.fig.add_subplot(gs[1, 1])
         self._style_ax(self.ax_twiss)
         self.line_twiss_a = self.ax_twiss.plot(
-            [], [], color=self.CYAN, lw=2.0, label="a.beta"
+            [], [], color=self.CYAN, lw=2.0, label="x.beta"
         )[0]
         self.line_twiss_b = self.ax_twiss.plot(
-            [], [], color=self.GOLD, lw=2.0, label="b.beta"
+            [], [], color=self.GOLD, lw=2.0, label="y.beta"
         )[0]
         self.ax_twiss.set_xlabel("s  (m)", fontsize=8)
         self.ax_twiss.set_ylabel("beta  (m)", fontsize=8)
@@ -537,8 +537,8 @@ class BeamDashboard:
         handles = []
         labels = []
         for line, label in [
-            (self.line_twiss_a, "a.beta"),
-            (self.line_twiss_b, "b.beta"),
+            (self.line_twiss_a, "x.beta"),
+            (self.line_twiss_b, "y.beta"),
         ]:
             if line.get_visible():
                 handles.append(line)

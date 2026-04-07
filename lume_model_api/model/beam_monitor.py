@@ -132,8 +132,8 @@ class StagedModelImageSource:
         max_scatter_points: int = 3000,
         reset_values: Optional[dict[str, object]] = None,
         twiss_s_pv: str = "s",
-        twiss_a_beta_pv: str = "a.beta",
-        twiss_b_beta_pv: str = "b.beta",
+        twiss_a_beta_pv: str = "x.beta",
+        twiss_b_beta_pv: str = "y.beta",
     ):
         self.model = model
         self.max_scatter_points = max_scatter_points
