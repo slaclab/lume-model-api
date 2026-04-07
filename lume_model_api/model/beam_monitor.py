@@ -151,7 +151,8 @@ class StagedModelImageSource:
     def create_default(cls):
         lattice_path = resolve_lcls_lattice_path()
         os.environ["LCLS_LATTICE"] = lattice_path
-        model = _create_cu_hxr_staged_model()
+        #model = _create_cu_hxr_staged_model()
+        model = _create_safe_cu_hxr_staged_model(lattice_path)
         return cls(model=model, reset_values={})
 
     def reset(self) -> None:
