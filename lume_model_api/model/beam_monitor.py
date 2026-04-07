@@ -17,6 +17,7 @@ from lume_visualizations.config import (
     EPICS_INPUT_PVS,
     MODEL_INPUT_NAMES,
     SCREEN_CONFIGS,
+    EXCLUDED_EPICS_PVS,
     resolve_lcls_lattice_path,
 )
 
@@ -36,54 +37,19 @@ def _create_cu_hxr_staged_model(start_element="OTR2", end_element="OTR4"):
     return get_cu_hxr_staged_model(start_element=start_element, end_element=end_element, track_beam=True)
 
 
-def _create_safe_cu_hxr_staged_model(lattice_path: str, start_element="OTR2", end_element="OTR4"):
-    """Not currently used"""
-    from pytao import Tao
-    from lume_bmad.model import LUMEBmadModel
-    from virtual_accelerator.bmad.cu_transformer import CUBmadTransformer
-    from virtual_accelerator.bmad.variables import (
-        get_cu_hxr_screen_variables,
-        get_variables,
-    )
-    from virtual_accelerator.models import cu_hxr as va_cu_hxr
-    from virtual_accelerator.models.staged_model import StagedModel
-    from virtual_accelerator.surrogates.injector_surrogate import InjectorSurrogate
-    from virtual_accelerator.utils.variables import (
-        get_epics_to_name_or_overlay_mapping,
-        split_control_and_observable,
-    )
+def _create_cu_hxr_bmad_model(lattice_path: str = None, start_element="OTR2", end_element="OTR4"):
+    from virtual_accelerator.models.cu_hxr import get_cu_hxr_bmad_model
+    return get_cu_hxr_bmad_model(start_element=start_element, end_element=end_element, track_beam=True)
 
-    init_file = Path(lattice_path) / "bmad" / "models" / "cu_hxr" / "tao.init"
+MODELS = {
+    "cu_hxr_staged": _create_cu_hxr_staged_model,
+    "cu_hxr_bmad": _create_cu_hxr_bmad_model,
+}
 
-    with _tao_model_workdir(lattice_path):
-        tao = Tao(f"-init {init_file} -noplot -slice_lattice {start_element}:{end_element}")
-
-    control_name_to_element_name = get_epics_to_name_or_overlay_mapping()
-    variables = get_variables(tao)
-    control_variables, observable_variables = split_control_and_observable(variables)
-
-    screens = ["OTR3", "OTR4", "OTR11", "OTR12", "OTR21"]
-    control_variables, screen_attributes, used_screens = get_cu_hxr_screen_variables(
-        tao, control_variables, screens
-    )
-
-    transformer = CUBmadTransformer(
-        control_name_to_bmad=control_name_to_element_name,
-        screen_attributes=screen_attributes,
-    )
-    bmad_model = LUMEBmadModel(
-        tao=tao,
-        control_variables=control_variables,
-        output_variables=observable_variables,
-        transformer=transformer,
-        dump_locations=used_screens,
-    )
-
-    beam_path = (Path(va_cu_hxr.__file__).parent / ".." / "bmad" / "bmad_set_beam2000_pg").resolve()
-    bmad_model.tao.cmd(f"set beam_init position_file = {beam_path}")
-    bmad_model.set({"track_type": 1})
-
-    return StagedModel([InjectorSurrogate(), bmad_model])
+MODEL_INFO = {
+    "cu_hxr_staged": {"description": "Staged LUMEModel chaining the LCLS Cu Injector ML model (predicting at OTR2)with a Bmad beamline simulation tracking from OTR2 to OTR4."},
+    "cu_hxr_bmad": {"description": "LUMEModel of Bmad linac simulation tracking from OTR2 to OTR4."},
+}
 
 
 # ---------------------------------------------------------------------------
@@ -121,21 +87,21 @@ class BeamFrame:
 # ---------------------------------------------------------------------------
 
 
-class StagedModelImageSource:
+class ModelImageSource:
     """Read beam images, beam phase space, and scalars from a staged model."""
 
     thread_safe = False
 
     def __init__(
         self,
-        model,
+        model_name: str,
         max_scatter_points: int = 3000,
         reset_values: Optional[dict[str, object]] = None,
         twiss_s_pv: str = "s",
         twiss_a_beta_pv: str = "x.beta",
         twiss_b_beta_pv: str = "y.beta",
     ):
-        self.model = model
+        self.model = MODELS.get(model_name)()
         self.max_scatter_points = max_scatter_points
         self.reset_values = reset_values or {}
         self.twiss_s_pv = twiss_s_pv
@@ -145,33 +111,29 @@ class StagedModelImageSource:
             name
             for name, variable in self.model.supported_variables.items()
             if not getattr(variable, "read_only", False)
+            and name not in EXCLUDED_EPICS_PVS
         }
+        self.reset_values = reset_values or {}
+        self.lattice_path = resolve_lcls_lattice_path()
+        os.environ["LCLS_LATTICE"] = self.lattice_path
 
     @classmethod
     def create_default(cls):
         lattice_path = resolve_lcls_lattice_path()
         os.environ["LCLS_LATTICE"] = lattice_path
-        model = _create_cu_hxr_staged_model()
-        #model = _create_safe_cu_hxr_staged_model(lattice_path)
-        return cls(model=model, reset_values={})
+        return cls(model_name="cu_hxr_staged", reset_values={})
 
     def reset(self) -> None:
         if self.reset_values:
             self.model.set(self.reset_values)
 
-    def get_model_input_names(self) -> list[str]:
-        torch_model = self.model.lume_model_instances[0].model.torch_model
-        return list(torch_model.input_names)
+    # def get_model_input_names(self) -> list[str]:
+    #     return [v for v in self.model.supported_variables if not getattr(self.model.supported_variables[v], "read_only", False)]
 
-    def get_current_inputs(self, input_names: Optional[list[str]] = None) -> dict[str, float]:
-        names = input_names or self.get_model_input_names()
-        values = self.model.get(names)
-        return {name: float(values[name]) for name in names}
-
-    def get_writable_model_input_names(self) -> list[str]:
-        return [
-            name for name in self.get_model_input_names() if name in self._writable_variable_names
-        ]
+    # def get_writable_model_input_names(self) -> list[str]:
+    #     return [
+    #         name for name in self.get_model_input_names() if name in self._writable_variable_names
+    #     ]
 
     def _filter_writable_updates(
         self, control_updates: Mapping[str, float]
@@ -308,6 +270,10 @@ def _is_virtualapple_emulated_x86() -> bool:
     return "VirtualApple" in cpuinfo
 
 
+# Alias for external consumers that import by the shorter name.
+ModelImageSource = StagedModelImageSource
+
+
 class SyntheticLiveImageSource:
     """Container-safe fallback source for amd64-on-Apple emulation."""
 
@@ -334,10 +300,6 @@ class SyntheticLiveImageSource:
 
     def get_model_input_names(self) -> list[str]:
         return list(EPICS_INPUT_PVS)
-
-    def get_current_inputs(self, input_names: Optional[list[str]] = None) -> dict[str, float]:
-        names = input_names or self.get_model_input_names()
-        return {name: float(self.current_inputs[name]) for name in names}
 
     def get_writable_model_input_names(self) -> list[str]:
         return list(EPICS_INPUT_PVS)

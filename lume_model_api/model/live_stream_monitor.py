@@ -41,7 +41,7 @@ def imports():
     if str(repo_root) not in sys.path:
         sys.path.insert(0, str(repo_root))
 
-    from lume_visualizations.beam_monitor import StagedModelImageSource
+    from lume_visualizations.beam_monitor import ModelImageSource, MODEL_INFO, MODELS
     from lume_visualizations.config import (
         EPICS_INPUT_PVS,
         MANUAL_INPUT_PVS,
@@ -66,19 +66,42 @@ def imports():
         SCREEN_KEYS,
         BeamDashboard,
         EpicsInputProvider,
-        StagedModelImageSource,
+        MODEL_INFO,
+        MODELS,
+        ModelImageSource,
         VisibilitySettings,
     )
 
 
 @app.cell
-def header(mo):
-    mo.md("# LUME Live Stream Monitor")
+def model_selector(MODELS, mo):
+    model_dropdown = mo.ui.dropdown(
+        options=list(MODELS.keys()),
+        value="cu_hxr_staged",
+        label="Model",
+    )
+    return (model_dropdown,)
 
 
 @app.cell
-def source_setup(EpicsInputProvider, EPICS_INPUT_PVS, FAKE_INPUT_SPECS, StagedModelImageSource):
-    source = StagedModelImageSource.create_default()
+def header(MODEL_INFO, mo, model_dropdown):
+    _tooltip = "\n".join(f"{k}: {v['description']}" for k, v in MODEL_INFO.items())
+    _info_icon = mo.md(
+        f'<abbr title="{_tooltip}" style="cursor:help;text-decoration:none;font-size:1.2em;">\u2139\ufe0f</abbr>'
+    )
+    mo.hstack(
+        [
+            mo.md("# LUME Live Stream Monitor"),
+            mo.hstack([model_dropdown, _info_icon], gap="0.4rem", align="center"),
+        ],
+        justify="space-between",
+        align="center",
+    )
+
+
+@app.cell
+def source_setup(EpicsInputProvider, EPICS_INPUT_PVS, FAKE_INPUT_SPECS, ModelImageSource, model_dropdown):
+    source = ModelImageSource(model_name=model_dropdown.value, reset_values={})
     provider = EpicsInputProvider()
     # Keep fake and real EPICS deployments on the same explicit PV contract.
     model_input_names = list(EPICS_INPUT_PVS)
@@ -103,9 +126,11 @@ def interactive_dashboard_setup(BeamDashboard):
 
 
 @app.cell
-def live_controls(mo, SCREEN_KEYS):
+def live_controls(mo, SCREEN_KEYS, model_dropdown):
+    _screen_options = [k for k in SCREEN_KEYS if not (model_dropdown.value == "cu_hxr_bmad" and k == "OTR2")]
+    _default_screen = "OTR4" if "OTR4" in _screen_options else _screen_options[0]
     live_screen_dropdown = mo.ui.dropdown(
-        options=SCREEN_KEYS, value="OTR4", label="Screen"
+        options=_screen_options, value=_default_screen, label="Screen"
     )
     live_poll_period_slider = mo.ui.slider(
         start=0.2,
@@ -171,9 +196,11 @@ def live_controls(mo, SCREEN_KEYS):
 
 
 @app.cell
-def interactive_controls(mo, SCREEN_KEYS):
+def interactive_controls(mo, SCREEN_KEYS, model_dropdown):
+    _screen_options = [k for k in SCREEN_KEYS if not (model_dropdown.value == "cu_hxr_bmad" and k == "OTR2")]
+    _default_screen = "OTR4" if "OTR4" in _screen_options else _screen_options[0]
     interactive_screen_dropdown = mo.ui.dropdown(
-        options=SCREEN_KEYS, value="OTR4", label="Screen"
+        options=_screen_options, value=_default_screen, label="Screen"
     )
     interactive_image_scale_mode = mo.ui.dropdown(
         options=["robust", "fixed", "auto"],
