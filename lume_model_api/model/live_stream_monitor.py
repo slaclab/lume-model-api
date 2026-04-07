@@ -85,12 +85,13 @@ def model_selector(MODELS, mo):
 
 @app.cell
 def header(MODEL_INFO, mo, model_dropdown):
-    _tooltip = "&#10;".join(
-        f"{k}: {v['description'].replace('&', '&amp;').replace('\"', '&quot;').replace(\"'\", '&#39;')}"
-        for k, v in MODEL_INFO.items()
-    )
+    _parts = []
+    for _k, _v in MODEL_INFO.items():
+        _desc = _v["description"].replace("&", "&amp;").replace('"', "&quot;")
+        _parts.append(_k + ": " + _desc)
+    _tooltip = "&#10;".join(_parts)
     _info_icon = mo.Html(
-        f'<abbr title="{_tooltip}" style="cursor:help;text-decoration:none;font-size:1.2em;">\u2139\ufe0f</abbr>'
+        '<abbr title="' + _tooltip + '" style="cursor:help;text-decoration:none;font-size:1.2em;">\u2139\ufe0f</abbr>'
     )
     mo.hstack(
         [
