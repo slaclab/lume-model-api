@@ -5,7 +5,28 @@ This repository contains two marimo dashboards built on top of the SLAC
 
 ## Apps
 
-### Quad scan monitor
+### Live stream monitor
+
+Path: `lume_visualizations/live_stream_monitor.py`
+
+This app has two tabs:
+
+- **Live monitoring** — continuously reads the staged model input PVs from EPICS,
+  pushes them through the model, and plots scalar histories versus time. The
+  timeseries x-axis shows Pacific time.
+- **Interactive offline changes** — lets you set model inputs via number boxes
+  and evaluate the model on demand. The dashboard updates reactively whenever
+  you change a value. A **"Apply current machine values"** button fetches the
+  current EPICS PV values and loads them into the input boxes.
+
+The live and interactive tabs use **separate model instances** so they never
+interfere with each other.
+
+The EPICS input layer lives in `lume_visualizations/epics_controls.py` so it
+can be swapped out without changing the marimo UI code.
+
+### Quad scan monitor 
+#### (not currently maintained - superseded by live monitor in interactive mode)
 
 Path: `lume_visualizations/quad_scan_monitor.py`
 
@@ -17,21 +38,6 @@ display between `OTR2`, `OTR3`, and `OTR4`.
 - `OTR3` uses `OTR3_beam` and `OTRS:IN20:621:Image:ArrayData`.
 - `OTR4` uses `OTR4_beam` and `OTRS:IN20:711:Image:ArrayData`.
 
-### Live stream monitor
-
-Path: `lume_visualizations/live_stream_monitor.py`
-
-This app has two tabs.
-
-- `Live monitoring` continuously reads the staged model input PVs from EPICS,
-	pushes them through the model, and plots scalar histories versus time.
-- `Interactive offline changes` replaces the EPICS input stream with manual
-	sliders for the requested injector controls and keeps a fake time stream going
-	even while the user is idle.
-
-The EPICS input layer lives in `lume_visualizations/epics_controls.py` so it
-can be swapped out without changing the marimo UI code.
-
 ### Fake EPICS IOC
 
 Path: `lume_visualizations/fake_epics_ioc.py`
@@ -42,17 +48,15 @@ by the live monitor and updates them continuously with smooth synthetic motion.
 
 ## Local install
 
-The existing local workflow uses the conda environment `va-dev-2`.
+Create a conda env, install this package as editable, then clone and install the `virtual-accelerator` 
+repo from the clone (workaround until `lume-torch` models are installable).
 
 ```bash
-conda activate va-dev-2
-export LCLS_LATTICE=/Users/smiskov/SLAC/lcls-lattice
-pip install -e ../virtual-accelerator
+conda activate va-dev
+export LCLS_LATTICE=/path/to/lcls-lattice/
+pip install ../virtual-accelerator
 pip install -e .
 ```
-
-If you do not want to use a sibling checkout, `pyproject.toml` also pins a known
-good `virtual_accelerator` revision from GitHub.
 
 `caproto` is included so the fake IOC can be run from the same environment.
 
@@ -61,7 +65,6 @@ good `virtual_accelerator` revision from GitHub.
 You can run the apps directly with marimo:
 
 ```bash
-marimo run lume_visualizations/quad_scan_monitor.py
 marimo run lume_visualizations/live_stream_monitor.py
 ```
 
@@ -93,15 +96,15 @@ To test the live streaming app against a local fake IOC instead of the machine:
 1. Start the fake IOC in one terminal:
 
 ```bash
-conda activate va-dev-2
+conda activate va-dev
 ./start-fake-epics-ioc.sh --update-period 0.5
 ```
 
 2. In a second terminal, start the app:
 
 ```bash
-conda activate va-dev-2
-export LCLS_LATTICE=/Users/smiskov/SLAC/lcls-lattice
+conda activate va-dev
+export LCLS_LATTICE=/path/to/lcls-lattice/
 marimo run lume_visualizations/live_stream_monitor.py
 ```
 
@@ -120,8 +123,8 @@ export EPICS_CA_ADDR_LIST=127.0.0.1
 The included `Dockerfile` builds a runnable image that:
 
 - installs this package,
-- installs the pinned `virtual_accelerator` dependency from GitHub,
-- clones the `lcls-lattice` repository into `/opt/lcls-lattice`, and
+- installs the `virtual_accelerator` dependency from GitHub,
+- clones the `lcls-lattice` repository into `/opt/lcls-lattice` (at pinned commit), and
 - defaults to serving the live monitor on port `2719` via `marimo run`.
 
 Build and run it locally:
@@ -149,53 +152,127 @@ docker run --rm -p 2718:2718 lume-visualizations \
 	lume-quad-scan --host 0.0.0.0 --port 2718 --headless
 ```
 
-## Kubernetes
+## Kubernetes deployment
 
-Kubernetes manifests live under `deploy/kubernetes`.
+Kubernetes manifests live under `deploy/kubernetes/`.
 
-- `namespace.yaml` — creates the `lume-visualizations` namespace.
-- `configmap.yaml` — provides the `LCLS_LATTICE` path used in the container.
-- `configmap-epics-fake.yaml` — EPICS config for the **in-pod fake IOC** (local/staging).
-- `configmap-epics-real.yaml` — EPICS config pointing at the **real CA gateway** (production).
-- `quad-scan.yaml` — deploys the quad scan app at `/quad-scan`.
-- `live-monitor.yaml` — deploys the live monitor app at `/live-monitor` via `marimo run`.
-- `ingress.yaml` — routes both apps through a single hostname with WebSocket upgrade headers.
-- `kustomization.yaml` — applies the full stack.
+### Architecture
+
+The live monitor runs as a 5-worker StatefulSet behind a lightweight
+allocator that assigns each browser session to a dedicated worker. This is
+required because marimo in `run` mode cannot handle multiple concurrent
+sessions (torch double-load causes segfaults).
+
+```
+Browser → /live-monitor/ → nginx-ingress → Allocator (307 redirect)
+Browser → /live-monitor/wN/ → nginx-ingress → Worker N (marimo directly)
+```
+
+Each worker runs `marimo run` with `--base-url /live-monitor/wN`. The allocator
+tracks worker occupancy via heartbeats sent from client-side JavaScript.
+
+There is documentation on how to update the number of workers in `live-monitor.yaml`.
+
+### ConfigMap strategy
+
+Some files are mounted via ConfigMap to allow rapid iteration without rebuilding
+the Docker image:
+
+| File | In ConfigMap? | Why |
+|------|:---:|-----|
+| `live_stream_monitor.py` | Yes | UI/dashboard code changes frequently |
+| `live_stream_monitor.css` | Yes | Styling tweaks |
+| `live_stream_monitor.head.html` | Yes | Session JS, heartbeat, error-recovery |
+| `dashboard.py` | Yes | Plot layout, timezone, axis labels |
+| `live_monitor_allocator.py` | Yes | Allocator routing logic |
+| `beam_monitor.py` | No | Stable model interface, in Docker image |
+| `config.py` | No | PV definitions, in Docker image |
+| `epics_controls.py` | No | EPICS reader, in Docker image |
+
+**Trade-off:** ConfigMap-mounted files can be updated with `kubectl apply -k .`
+without a Docker rebuild (seconds vs minutes). The downside is the source must
+be kept in sync between `lume_visualizations/` and `deploy/kubernetes/live-monitor-ui/`.
+Files that rarely change stay in the Docker image for simplicity.
+
+### Manifest files
+
+| File | Purpose |
+|------|---------|
+| `namespace.yaml` | Creates the `lume-visualizations` namespace |
+| `configmap.yaml` | Provides the `LCLS_LATTICE` path |
+| `configmap-epics-fake.yaml` | EPICS config for the in-pod fake IOC |
+| `configmap-epics-real.yaml` | EPICS config for the real CA gateway |
+| `live-monitor.yaml` | Allocator Deployment, per-pod Services (w0–w4), StatefulSet |
+| `ingress.yaml` | Per-worker paths + catch-all to allocator |
+| `quad-scan.yaml` | Quad scan app Deployment |
+| `quad-scan-ingress.yaml` | Ingress for the quad scan app |
+| `kustomization.yaml` | Applies everything, ConfigMapGenerator, image tag override |
+
+### Performance tuning
+
+The Docker image container sees all host CPUs but is cgroup-limited to 2 cores.
+Without thread pinning, torch and OpenMP spawn too many threads and contend
+heavily. The StatefulSet sets `OMP_NUM_THREADS=2`, `MKL_NUM_THREADS=2`,
+`OPENBLAS_NUM_THREADS=2`, and `TORCH_NUM_THREADS=2` to match the CPU limit.
+The app also calls `torch.set_num_threads()` at import time. Without this fix,
+model evaluation takes ~5–10 s per shot; with it, ~180 ms.
 
 ### Switching between fake and real EPICS
 
-Open `kustomization.yaml` and change the EPICS ConfigMap resource to one of:
+Open `kustomization.yaml` and change the EPICS ConfigMap resource:
 
 ```yaml
 resources:
-  - configmap-epics-fake.yaml   # in-pod fake IOC (default)
-  # - configmap-epics-real.yaml # real facility CA gateway
+  - configmap-epics-fake.yaml   # in-pod fake IOC (local/staging)
+  # - configmap-epics-real.yaml # LCLS CA gateway, not pushed to public repo
 ```
-
-The fake-IOC ConfigMap sets `LUME_START_FAKE_EPICS=1` and points the CA client at
-`127.0.0.1`. The real ConfigMap sets `LUME_START_FAKE_EPICS=0` and points at the
-CA gateway IP defined in that file — replace `134.79.169.20` with the actual
-address for your site before deploying to production.
-
-### Ingress note
-
-`ingress.yaml` passes `Upgrade`/`Connection` headers via a
-`configuration-snippet` annotation to support `marimo run`'s WebSocket reactive
-updates over HTTPS. This requires `allow-snippet-annotations: "true"` in the
-`ingress-nginx` controller ConfigMap. Check your cluster's ingress controller
-settings if reactive updates do not work after deploy.
 
 ### Deploy
 
 ```bash
-kubectl apply -k deploy/kubernetes
+cd deploy/kubernetes
+kubectl apply -k .
+kubectl rollout status statefulset/lume-live-monitor-worker -n lume-visualizations
 ```
 
-Before deploying, update the image tag in the manifests and confirm the ingress
-host matches your cluster's hostname.
+Clean up stale ConfigMaps after deploy (if needed):
+
+```bash
+kubectl get configmaps -n lume-visualizations | grep live-monitor-ui
+kubectl delete configmap -n lume-visualizations <old-hash>
+```
+
+To update after image rebuild:
+
+```bash
+kubectl rollout status statefulset/lume-live-monitor-worker -n lume-visualizations
+kubectl rollout restart deployment/lume-live-monitor-allocator -n lume-visualizations
+```
+
+### Changing worker count
+There is documentation on how to update the number of workers in `live-monitor.yaml`.
+
+1. In `live-monitor.yaml`: change `LUME_WORKER_COUNT`, StatefulSet `replicas`,
+   add/remove per-pod Service blocks.
+2. In `ingress.yaml`: add/remove `/live-monitor/wN` path entries.
+3. Apply: `kubectl apply -k .`
+
 
 ## GitHub Actions
 
 `.github/workflows/build-container.yml` builds the Docker image and pushes it to
 GitHub Container Registry as `ghcr.io/slaclab/lume-visualizations` on pushes to
 `main`, tags matching `v*`, and manual workflow dispatches.
+
+## Known Issues/TODOs
+- The "Apply current machine values" button looks off when running locally, but looks fine in the k8s deployment. The settings are optimized for k8s. Not sure why it's different.
+- May need to look into modularizing more to support easier swaps between `LUMEModel` instances (dynamically generate from `LUMEModels`, and/or make configs external and only import at consumer level)
+- Double check all units and scales
+- Add info in UI as to what model is running
+- Right now it only is settings the injector model PVs. We should also pull in all `cu_hxr_bmad_model` writable PVs and set them in the model.
+	- add bmad writable PVs to interactive sliders (can we dynamically generate this instead of hardcoding configs?)
+	- may need to get mix/max of Bmad inputs from PV info
+- Later: 
+	- add support to swap models: staged model, or `cu_hxr_bmad_model` only
+	- add bmad writable PVs to interactive sliders (can we dynamically generate this instead of hardcoding configs?)
+	- Make tracking start and end a config that users can change? (need to think about this)

@@ -3,8 +3,6 @@ name: check-k8s-vendored
 on:
   pull_request:
   push:
-    branches:
-      - main
 
 jobs:
   check-vendored-files:
@@ -17,6 +15,7 @@ jobs:
         run: |
           files=(
             live_stream_monitor.py
+            dashboard.py
             live_stream_monitor.css
             live_stream_monitor.head.html
           )
