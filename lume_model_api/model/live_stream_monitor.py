@@ -85,8 +85,11 @@ def model_selector(MODELS, mo):
 
 @app.cell
 def header(MODEL_INFO, mo, model_dropdown):
-    _tooltip = "\n".join(f"{k}: {v['description']}" for k, v in MODEL_INFO.items())
-    _info_icon = mo.md(
+    _tooltip = "&#10;".join(
+        f"{k}: {v['description'].replace('&', '&amp;').replace('\"', '&quot;').replace(\"'\", '&#39;')}"
+        for k, v in MODEL_INFO.items()
+    )
+    _info_icon = mo.Html(
         f'<abbr title="{_tooltip}" style="cursor:help;text-decoration:none;font-size:1.2em;">\u2139\ufe0f</abbr>'
     )
     mo.hstack(
@@ -127,10 +130,8 @@ def interactive_dashboard_setup(BeamDashboard):
 
 @app.cell
 def live_controls(mo, SCREEN_KEYS, model_dropdown):
-    _screen_options = [k for k in SCREEN_KEYS if not (model_dropdown.value == "cu_hxr_bmad" and k == "OTR2")]
-    _default_screen = "OTR4" if "OTR4" in _screen_options else _screen_options[0]
     live_screen_dropdown = mo.ui.dropdown(
-        options=_screen_options, value=_default_screen, label="Screen"
+        options=SCREEN_KEYS, value="OTR4", label="Screen"
     )
     live_poll_period_slider = mo.ui.slider(
         start=0.2,
@@ -197,10 +198,8 @@ def live_controls(mo, SCREEN_KEYS, model_dropdown):
 
 @app.cell
 def interactive_controls(mo, SCREEN_KEYS, model_dropdown):
-    _screen_options = [k for k in SCREEN_KEYS if not (model_dropdown.value == "cu_hxr_bmad" and k == "OTR2")]
-    _default_screen = "OTR4" if "OTR4" in _screen_options else _screen_options[0]
     interactive_screen_dropdown = mo.ui.dropdown(
-        options=_screen_options, value=_default_screen, label="Screen"
+        options=SCREEN_KEYS, value="OTR4", label="Screen"
     )
     interactive_image_scale_mode = mo.ui.dropdown(
         options=["robust", "fixed", "auto"],
@@ -266,6 +265,10 @@ def interactive_slider_controls(
         "QUAD:IN20:441:BCTRL": "QUAD:IN20:441:BCTRL",
         "QUAD:IN20:511:BCTRL": "QUAD:IN20:511:BCTRL",
         "QUAD:IN20:525:BCTRL": "QUAD:IN20:525:BCTRL",
+        "QUAD:IN20:631:BCTRL": "QUAD:IN20:631:BCTRL",
+        "QUAD:IN20:651:BCTRL": "QUAD:IN20:651:BCTRL",
+        "XCOR:IN20:641:BCTRL": "XCOR:IN20:641:BCTRL",
+        "YCOR:IN20:642:BCTRL": "YCOR:IN20:642:BCTRL",
     }
     slider_specs = {spec.pv_name: spec for spec in FAKE_INPUT_SPECS}
     # Resolve display overrides once (set by the "apply machine values" button).
@@ -277,10 +280,14 @@ def interactive_slider_controls(
     for index, pv_name in enumerate(MANUAL_INPUT_PVS):
         spec = slider_specs[pv_name]
         _range = float(spec.maximum) - float(spec.minimum)
-        _step = max(round(_range / 1000, 3), 0.001)
+        if _range <= 0:
+            _start, _stop, _step = -0.1, 0.1, 0.001
+        else:
+            _start, _stop = float(spec.minimum), float(spec.maximum)
+            _step = max(round(_range / 1000, 3), 0.001)
         slider = mo.ui.slider(
-            start=float(spec.minimum),
-            stop=float(spec.maximum),
+            start=_start,
+            stop=_stop,
             step=_step,
             value=round(float(_display_vals.get(pv_name, initial_inputs[pv_name])), 3),
             label=slider_labels.get(pv_name, pv_name),

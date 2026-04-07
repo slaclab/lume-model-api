@@ -37,7 +37,7 @@ def _create_cu_hxr_staged_model(start_element="OTR2", end_element="OTR4"):
     return get_cu_hxr_staged_model(start_element=start_element, end_element=end_element, track_beam=True)
 
 
-def _create_cu_hxr_bmad_model(lattice_path: str = None, start_element="OTR2", end_element="OTR4"):
+def _create_cu_hxr_bmad_model(start_element="OTR2", end_element="OTR4"):
     from virtual_accelerator.models.cu_hxr import get_cu_hxr_bmad_model
     return get_cu_hxr_bmad_model(start_element=start_element, end_element=end_element, track_beam=True)
 
@@ -167,7 +167,7 @@ class ModelImageSource:
         ]
         if screen.image_pv:
             pvs.insert(0, screen.image_pv)
-        if screen.scalar_mode == "pvs":
+        if screen.scalar_mode and self.model_name == "cu_hxr_staged":
             pvs.extend(
                 [
                     screen.xrms_pv,
@@ -213,7 +213,7 @@ class ModelImageSource:
         )
 
     def _extract_scalars(self, screen, result: Mapping[str, object], beam) -> tuple[float, float, float, float, float]:
-        if screen.scalar_mode == "pvs":
+        if screen.scalar_mode == "pvs" and self.model_name == "cu_hxr_staged":
             return (
                 float(result[screen.xrms_pv]),
                 float(result[screen.yrms_pv]),
@@ -225,6 +225,7 @@ class ModelImageSource:
         if beam is None:
             return (0.0, 0.0, 0.0, 0.0, 0.0)
 
+        # for bmad-only model, OTR2 scalars are from "input_beam" particle distribution
         return (
             float(beam["sigma_x"]) * 1e6,
             float(beam["sigma_y"]) * 1e6,
@@ -248,147 +249,6 @@ class ModelImageSource:
 # ---------------------------------------------------------------------------
 # Concrete implementation: virtual-accelerator StagedModel
 # ---------------------------------------------------------------------------
-
-
-def default_manual_input_values() -> dict[str, float]:
-    return {name: 0.0 for name in MODEL_INPUT_NAMES}
-
-
-def _is_virtualapple_emulated_x86() -> bool:
-    if platform.machine().lower() != "x86_64":
-        return False
-
-    cpuinfo_path = Path("/proc/cpuinfo")
-    if not cpuinfo_path.exists():
-        return False
-
-    try:
-        cpuinfo = cpuinfo_path.read_text(encoding="utf-8", errors="ignore")
-    except OSError:
-        return False
-
-    return "VirtualApple" in cpuinfo
-
-
-# Alias for external consumers that import by the shorter name.
-ModelImageSource = StagedModelImageSource
-
-
-class SyntheticLiveImageSource:
-    """Container-safe fallback source for amd64-on-Apple emulation."""
-
-    thread_safe = True
-
-    def __init__(
-        self,
-        image_shape: tuple[int, int] = (256, 256),
-        max_scatter_points: int = 3000,
-    ):
-        from lume_visualizations.fake_epics_ioc import FAKE_INPUT_SPECS
-
-        defaults = {spec.pv_name: float(spec.default) for spec in FAKE_INPUT_SPECS}
-        self.default_inputs = {
-            name: float(defaults.get(name, 0.0))
-            for name in EPICS_INPUT_PVS
-        }
-        self.current_inputs = dict(self.default_inputs)
-        self.image_shape = image_shape
-        self.max_scatter_points = max_scatter_points
-
-    def reset(self) -> None:
-        self.current_inputs = dict(self.default_inputs)
-
-    def get_model_input_names(self) -> list[str]:
-        return list(EPICS_INPUT_PVS)
-
-    def get_writable_model_input_names(self) -> list[str]:
-        return list(EPICS_INPUT_PVS)
-
-    def snapshot(
-        self,
-        screen_key: str,
-        control_updates: Optional[Mapping[str, float]] = None,
-        x_axis_value: float | datetime = 0.0,
-        frame_index: int = 0,
-        image_caption: str = "",
-        title_suffix: str = "",
-    ) -> BeamFrame:
-        if control_updates:
-            for key, value in control_updates.items():
-                if key in self.current_inputs:
-                    self.current_inputs[key] = float(value)
-
-        screen = SCREEN_CONFIGS[screen_key]
-        screen_scale = {"OTR2": 0.92, "OTR3": 1.0, "OTR4": 1.08}.get(screen_key, 1.0)
-        focus_term = (
-            0.25 * self.current_inputs["QUAD:IN20:361:BCTRL"]
-            - 0.18 * self.current_inputs["QUAD:IN20:371:BCTRL"]
-            + 0.12 * self.current_inputs["QUAD:IN20:425:BCTRL"]
-            - 0.09 * self.current_inputs["QUAD:IN20:441:BCTRL"]
-        )
-        phase_term = 0.05 * (
-            self.current_inputs["ACCL:IN20:300:L0A_PDES"]
-            + self.current_inputs["ACCL:IN20:400:L0B_PDES"]
-        )
-        solenoid_term = 40.0 * self.current_inputs["SOLN:IN20:121:BCTRL"]
-        xrms_base = self.current_inputs["CAMR:IN20:186:XRMS"]
-        yrms_base = self.current_inputs["CAMR:IN20:186:YRMS"]
-
-        xrms_um = max(60.0, screen_scale * xrms_base + solenoid_term + 22.0 * np.sin(focus_term))
-        yrms_um = max(60.0, screen_scale * yrms_base - 0.6 * solenoid_term + 18.0 * np.cos(focus_term))
-        sigma_z_um = max(
-            200.0,
-            220.0
-            + 120.0 * self.current_inputs["FBCK:BCI0:1:CHRG_S"]
-            + 0.04 * (xrms_base + yrms_base)
-            + 18.0 * np.cos(phase_term),
-        )
-        norm_emit_x_um_rad = max(0.08, 0.42 + 0.03 * np.sin(focus_term + 0.4 * phase_term))
-        norm_emit_y_um_rad = max(0.08, 0.39 + 0.03 * np.cos(focus_term - 0.3 * phase_term))
-
-        rng = np.random.default_rng(seed=2719 + frame_index)
-        beam_x_um = rng.normal(0.0, xrms_um, size=self.max_scatter_points)
-        beam_px_evc = rng.normal(0.0, max(0.02, yrms_um / 1800.0), size=self.max_scatter_points)
-
-        twiss_s = np.linspace(0.0, 40.0, 200)
-        twiss_a_beta = 5.5 + 1.3 * np.sin(twiss_s / 6.0 + 0.1 * focus_term)
-        twiss_b_beta = 7.8 + 1.8 * np.cos(twiss_s / 7.5 - 0.08 * focus_term)
-
-        image = None
-        if screen.image_pv:
-            nrow, ncol = self.image_shape
-            cy, cx = nrow / 2, ncol / 2
-            sigma_x_px = max(4.0, xrms_um / 18.0)
-            sigma_y_px = max(4.0, yrms_um / 18.0)
-            y_idx, x_idx = np.mgrid[0:nrow, 0:ncol]
-            image = np.exp(
-                -0.5 * ((x_idx - cx) / sigma_x_px) ** 2
-                - 0.5 * ((y_idx - cy) / sigma_y_px) ** 2
-            )
-            image += rng.normal(0.0, 0.02, size=image.shape)
-            image = np.clip(image, 0.0, None)
-
-        return BeamFrame(
-            screen_key=screen.key,
-            screen_label=screen.label,
-            x_axis_value=x_axis_value,
-            xrms_um=float(xrms_um),
-            yrms_um=float(yrms_um),
-            sigma_z_um=float(sigma_z_um),
-            norm_emit_x_um_rad=float(norm_emit_x_um_rad),
-            norm_emit_y_um_rad=float(norm_emit_y_um_rad),
-            image=image,
-            image_message=screen.image_message if image is None else "",
-            image_caption=image_caption,
-            beam_x_um=beam_x_um,
-            beam_px_evc=beam_px_evc,
-            twiss_s=twiss_s,
-            twiss_a_beta=twiss_a_beta,
-            twiss_b_beta=twiss_b_beta,
-            title_suffix=title_suffix,
-            frame_index=frame_index,
-            timestamp=time.time(),
-        )
 
 
 # ---------------------------------------------------------------------------
