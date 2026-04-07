@@ -16,9 +16,8 @@ dependencies = [
     "numpy>=1.26",
     "pyepics>=3.5",
     "uvicorn>=0.34,!=0.36.0",
-    "virtual-accelerator @ git+https://github.com/pluflou/virtual-accelerator"
 ]
-
+ # virtual-accelerator needs to be installed in the container for now to access the subtrees
 
 [project.scripts]
 lume-fake-epics-ioc = "lume_visualizations.fake_epics_ioc:main"
