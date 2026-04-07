@@ -101,6 +101,7 @@ class ModelImageSource:
         twiss_a_beta_pv: str = "x.beta",
         twiss_b_beta_pv: str = "y.beta",
     ):
+        self.model_name = model_name
         self.model = MODELS.get(model_name)()
         self.max_scatter_points = max_scatter_points
         self.reset_values = reset_values or {}
@@ -126,14 +127,6 @@ class ModelImageSource:
     def reset(self) -> None:
         if self.reset_values:
             self.model.set(self.reset_values)
-
-    # def get_model_input_names(self) -> list[str]:
-    #     return [v for v in self.model.supported_variables if not getattr(self.model.supported_variables[v], "read_only", False)]
-
-    # def get_writable_model_input_names(self) -> list[str]:
-    #     return [
-    #         name for name in self.get_model_input_names() if name in self._writable_variable_names
-    #     ]
 
     def _filter_writable_updates(
         self, control_updates: Mapping[str, float]
@@ -167,7 +160,7 @@ class ModelImageSource:
         ]
         if screen.image_pv:
             pvs.insert(0, screen.image_pv)
-        if screen.scalar_mode and self.model_name == "cu_hxr_staged":
+        if screen.scalar_mode == "pvs" and self.model_name == "cu_hxr_staged":
             pvs.extend(
                 [
                     screen.xrms_pv,
@@ -244,122 +237,4 @@ class ModelImageSource:
             x = x[indices]
             px = px[indices]
         return (x * 1e6, px)
-
-
-# ---------------------------------------------------------------------------
-# Concrete implementation: virtual-accelerator StagedModel
-# ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
-# Concrete implementation: synthetic / mock source (no hardware required)
-# ---------------------------------------------------------------------------
-
-
-class MockImageSource:
-    """
-    Generates synthetic beam images and scalars for development / CI.
-
-    The beam spot is a 2-D Gaussian whose sigma_x grows with |scan_value|,
-    mimicking a real quadrupole scan.
-
-    Parameters
-    ----------
-    image_shape:
-        (nRow, nCol) of the fake OTR image.
-    n_particles:
-        Number of particles in the phase-space scatter.
-    noise_level:
-        Gaussian noise amplitude added to the image.
-    sleep_s:
-        Artificial latency per step to simulate computation time.
-    """
-
-    thread_safe = True
-
-    def __init__(
-        self,
-        image_shape: tuple[int, int] = (256, 256),
-        n_particles: int = 3000,
-        noise_level: float = 0.02,
-        sleep_s: float = 0.2,
-    ):
-        self.image_shape = image_shape
-        self.n_particles = n_particles
-        self.noise_level = noise_level
-        self.sleep_s = sleep_s
-
-    def snapshot(
-        self,
-        screen_key: str,
-        x_axis_value: float | datetime,
-        frame_index: int,
-        image_caption: str,
-        title_suffix: str,
-    ) -> BeamFrame:
-        if self.sleep_s > 0:
-            time.sleep(self.sleep_s)
-
-        nrow, ncol = self.image_shape
-        cy, cx = nrow / 2, ncol / 2
-
-        # Spot size varies with quad strength
-        position_value = frame_index if isinstance(x_axis_value, datetime) else float(x_axis_value)
-        sigma_x_px = max(4.0, 20.0 + 2.5 * position_value)
-        sigma_y_px = max(4.0, 20.0 - 1.5 * position_value)
-
-        y_idx, x_idx = np.mgrid[0:nrow, 0:ncol]
-        image = np.exp(
-            -0.5 * ((x_idx - cx) / sigma_x_px) ** 2
-            - 0.5 * ((y_idx - cy) / sigma_y_px) ** 2
-        )
-        image += np.random.normal(0, self.noise_level, image.shape)
-        image = np.clip(image, 0, None)
-
-        # Scalar diagnostics
-        res_um = 12.0  # µm/px (approximate)
-        xrms = sigma_x_px * res_um
-        yrms = sigma_y_px * res_um
-        norm_emit_x = max(1e-7, 5e-7 + position_value * 2e-8)
-        norm_emit_y = max(1e-7, 5e-7 - position_value * 1.5e-8)
-        sigma_z = 4.6e-4
-
-        # Phase-space scatter
-        bx = np.random.normal(0, xrms, self.n_particles)
-        bpx = np.random.normal(0, yrms, self.n_particles)
-
-        # Simple synthetic Twiss functions along s
-        twiss_s = np.linspace(0.0, 40.0, 200)
-        twiss_a_beta = 6.0 + 1.5 * np.sin(twiss_s / 6.0 + 0.15 * position_value)
-        twiss_b_beta = 8.0 + 2.0 * np.cos(twiss_s / 7.5 - 0.12 * position_value)
-
-        return BeamFrame(
-            screen_key=screen_key,
-            screen_label=screen_key,
-            x_axis_value=x_axis_value,
-            xrms_um=xrms,
-            yrms_um=yrms,
-            sigma_z_um=sigma_z * 1e6,
-            norm_emit_x_um_rad=norm_emit_x * 1e6,
-            norm_emit_y_um_rad=norm_emit_y * 1e6,
-            image=image,
-            image_caption=image_caption,
-            beam_x_um=bx,
-            beam_px_evc=bpx,
-            twiss_s=twiss_s,
-            twiss_a_beta=twiss_a_beta,
-            twiss_b_beta=twiss_b_beta,
-            title_suffix=title_suffix,
-            frame_index=frame_index,
-            timestamp=time.time(),
-        )
-
-    def get_frame(self, scan_pv: str, scan_value: float, step_index: int) -> BeamFrame:
-        return self.snapshot(
-            screen_key="OTR4",
-            x_axis_value=scan_value,
-            frame_index=step_index,
-            image_caption=f"{scan_pv} = {scan_value:.2f} kG",
-            title_suffix=f"Mock step {step_index + 1}",
-        )
-
+    
