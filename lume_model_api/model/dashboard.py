@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 import matplotlib
 
@@ -12,6 +13,8 @@ import matplotlib.gridspec as gridspec
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 import numpy as np
+
+PACIFIC_TZ = ZoneInfo("US/Pacific")
 
 
 @dataclass(frozen=True)
@@ -40,6 +43,12 @@ class BeamDashboard:
     IMAGE_PERCENTILE_LOW = 2.0
     IMAGE_PERCENTILE_HIGH = 99.7
     IMAGE_SCALE_WARMUP_FRAMES = 4
+    # Rolling time-window width for the scalar timeseries plot (seconds).
+    TIMESERIES_WINDOW_SECONDS = 120.0
+    # Rolling window for index/numeric x-axis mode (number of most recent points).
+    TIMESERIES_WINDOW_POINTS = 30
+    # Hard cap on history length to avoid unbounded memory growth.
+    MAX_HISTORY_POINTS = 2000
 
     def __init__(self, app_title: str):
         self.app_title = app_title
@@ -113,8 +122,9 @@ class BeamDashboard:
             transform=self.ax_img.transAxes,
             fontsize=11,
         )
-        self.ax_img.set_xticks([])
-        self.ax_img.set_yticks([])
+        self.ax_img.set_xlabel("x  (pixel)", fontsize=8)
+        self.ax_img.set_ylabel("y  (pixel)", fontsize=8)
+        self.ax_img.tick_params(labelsize=7)
 
         self.ax_ps = self.fig.add_subplot(gs[0, 1])
         self._style_ax(self.ax_ps)
@@ -190,10 +200,10 @@ class BeamDashboard:
         self.ax_twiss = self.fig.add_subplot(gs[1, 1])
         self._style_ax(self.ax_twiss)
         self.line_twiss_a = self.ax_twiss.plot(
-            [], [], color=self.CYAN, lw=2.0, label="a.beta"
+            [], [], color=self.CYAN, lw=2.0, label="x.beta"
         )[0]
         self.line_twiss_b = self.ax_twiss.plot(
-            [], [], color=self.GOLD, lw=2.0, label="b.beta"
+            [], [], color=self.GOLD, lw=2.0, label="y.beta"
         )[0]
         self.ax_twiss.set_xlabel("s  (m)", fontsize=8)
         self.ax_twiss.set_ylabel("beta  (m)", fontsize=8)
@@ -243,13 +253,15 @@ class BeamDashboard:
         x_axis_unit: str,
         x_axis_mode: str,
         image_placeholder: str = "Waiting for first shot...",
+        clear_history: bool = True,
     ) -> None:
         self.screen_label = screen_label
         self.x_axis_label = x_axis_label
         self.x_axis_unit = x_axis_unit
         self.x_axis_mode = x_axis_mode
-        for values in self.history_data.values():
-            values.clear()
+        if clear_history:
+            for values in self.history_data.values():
+                values.clear()
 
         self.image_artist.set_visible(False)
         self.image_artist.set_data(np.zeros((2, 2)))
@@ -337,6 +349,10 @@ class BeamDashboard:
         self.history_data["sigmaz"].append(frame.sigma_z_um)
         self.history_data["emx"].append(frame.norm_emit_x_um_rad)
         self.history_data["emy"].append(frame.norm_emit_y_um_rad)
+        # Trim to hard cap so history doesn't grow unboundedly.
+        if len(self.history_data["x"]) > self.MAX_HISTORY_POINTS:
+            for key in self.history_data:
+                self.history_data[key] = self.history_data[key][-self.MAX_HISTORY_POINTS:]
 
         self.timeseries_placeholder.set_visible(False)
         x_values = self.history_data["x"]
@@ -354,6 +370,7 @@ class BeamDashboard:
             frame.twiss_s is not None
             and frame.twiss_a_beta is not None
             and frame.twiss_b_beta is not None
+            and len(frame.twiss_s) == len(frame.twiss_a_beta) == len(frame.twiss_b_beta)
         ):
             self.twiss_placeholder.set_visible(False)
             self.line_twiss_a.set_data(frame.twiss_s, frame.twiss_a_beta)
@@ -374,8 +391,11 @@ class BeamDashboard:
 
     def _configure_x_axis(self) -> None:
         if self.x_axis_mode == "time":
-            self.ax_ts.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M:%S"))
-            self.ax_ts.set_xlabel("Time", fontsize=8)
+            self.ax_ts.xaxis.set_major_formatter(
+                mdates.DateFormatter("%I:%M:%S %p", tz=PACIFIC_TZ)
+            )
+            self.ax_ts.tick_params(axis='x', labelrotation=30)
+            self.ax_ts.set_xlabel("Time (Pacific)", fontsize=8)
         else:
             unit_suffix = f"  ({self.x_axis_unit})" if self.x_axis_unit else ""
             self.ax_ts.set_xlabel(f"{self.x_axis_label}{unit_suffix}", fontsize=8)
@@ -383,18 +403,44 @@ class BeamDashboard:
 
     def _update_timeseries_limits(self) -> None:
         if self.x_axis_mode == "time":
-            self.ax_ts.set_xlim(*self._pad_time_bounds(self.history_data["x"]))
-        else:
-            self.ax_ts.set_xlim(*self._pad_numeric_bounds(self.history_data["x"], minimum=0.5))
-        self.ax_ts.set_ylim(
-            *self._pad_numeric_bounds(
-                self.history_data["xrms"] + self.history_data["yrms"] + self.history_data["sigmaz"],
-                minimum=5.0,
+            # Rolling window: always show the most recent TIMESERIES_WINDOW_SECONDS.
+            now = datetime.now(tz=PACIFIC_TZ)
+            window = timedelta(seconds=self.TIMESERIES_WINDOW_SECONDS)
+            x_left = now - window
+            self.ax_ts.set_xlim(x_left, now)
+            # Compute y limits only from points inside the visible window.
+            xs = self.history_data["x"]
+            in_window = [i for i, xv in enumerate(xs) if xv >= x_left]
+            def _win_t(key):
+                d = self.history_data[key]
+                return [d[i] for i in in_window]
+            self.ax_ts.set_ylim(
+                *self._pad_numeric_bounds(_win_t("xrms") + _win_t("yrms") + _win_t("sigmaz"), minimum=5.0)
             )
-        )
-        self.ax_em.set_ylim(
-            *self._pad_numeric_bounds(self.history_data["emx"] + self.history_data["emy"], minimum=0.05)
-        )
+            self.ax_em.set_ylim(
+                *self._pad_numeric_bounds(_win_t("emx") + _win_t("emy"), minimum=0.05)
+            )
+        else:
+            # Rolling window: show last TIMESERIES_WINDOW_POINTS evaluations,
+            # scrolling left as new points arrive.
+            xs = self.history_data["x"]
+            n = len(xs)
+            win_start = max(0, n - self.TIMESERIES_WINDOW_POINTS)
+            if n > 1:
+                lo = float(xs[win_start])
+                hi = float(xs[-1])
+                span = hi - lo if hi != lo else 1.0
+                self.ax_ts.set_xlim(lo - span * 0.05, hi + span * 0.15)
+            else:
+                self.ax_ts.set_xlim(*self._pad_numeric_bounds([float(x) for x in xs] if xs else [0.0], minimum=0.5))
+            def _win_n(key):
+                return self.history_data[key][win_start:]
+            self.ax_ts.set_ylim(
+                *self._pad_numeric_bounds(_win_n("xrms") + _win_n("yrms") + _win_n("sigmaz"), minimum=5.0)
+            )
+            self.ax_em.set_ylim(
+                *self._pad_numeric_bounds(_win_n("emx") + _win_n("emy"), minimum=0.05)
+            )
 
     def _timeseries_title(self, screen_label: str, x_axis_label: str, x_axis_mode: str) -> str:
         if x_axis_mode == "time":
@@ -491,8 +537,8 @@ class BeamDashboard:
         handles = []
         labels = []
         for line, label in [
-            (self.line_twiss_a, "a.beta"),
-            (self.line_twiss_b, "b.beta"),
+            (self.line_twiss_a, "x.beta"),
+            (self.line_twiss_b, "y.beta"),
         ]:
             if line.get_visible():
                 handles.append(line)
@@ -524,7 +570,7 @@ class BeamDashboard:
 
     def _pad_time_bounds(self, values):
         if len(values) == 0:
-            now = datetime.now()
+            now = datetime.now(tz=PACIFIC_TZ)
             return (now - timedelta(seconds=1), now + timedelta(seconds=1))
         vmin = min(values)
         vmax = max(values)

@@ -86,8 +86,8 @@ def controls(mo, SCREEN_KEYS):
     show_sigma_z = mo.ui.checkbox(value=True, label="sigma_z")
     show_emit_x = mo.ui.checkbox(value=True, label="eps_n,x")
     show_emit_y = mo.ui.checkbox(value=True, label="eps_n,y")
-    show_twiss_a_beta = mo.ui.checkbox(value=True, label="a.beta")
-    show_twiss_b_beta = mo.ui.checkbox(value=True, label="b.beta")
+    show_twiss_a_beta = mo.ui.checkbox(value=True, label="x.beta")
+    show_twiss_b_beta = mo.ui.checkbox(value=True, label="y.beta")
     run_button = mo.ui.run_button(label="Run scan")
     stop_button = mo.ui.button(label="Stop", kind="danger")
 
