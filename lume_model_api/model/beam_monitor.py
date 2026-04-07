@@ -31,8 +31,13 @@ def _tao_model_workdir(lattice_path: str):
     finally:
         os.chdir(previous_cwd)
 
+def _create_cu_hxr_staged_model(start_element="OTR2", end_element="OTR4"):
+    from virtual_accelerator.models.staged_model import get_cu_hxr_staged_model
+    return get_cu_hxr_staged_model(start_element=start_element, end_element=end_element, track_beam=True)
+
 
 def _create_safe_cu_hxr_staged_model(lattice_path: str, start_element="OTR2", end_element="OTR4"):
+    """Not currently used"""
     from pytao import Tao
     from lume_bmad.model import LUMEBmadModel
     from virtual_accelerator.bmad.cu_transformer import CUBmadTransformer
@@ -144,12 +149,9 @@ class StagedModelImageSource:
 
     @classmethod
     def create_default(cls):
-        # if _is_virtualapple_emulated_x86():
-        #     return SyntheticLiveImageSource()
-
         lattice_path = resolve_lcls_lattice_path()
         os.environ["LCLS_LATTICE"] = lattice_path
-        model = _create_safe_cu_hxr_staged_model(lattice_path)
+        model = _create_cu_hxr_staged_model()
         return cls(model=model, reset_values={})
 
     def reset(self) -> None:
@@ -192,8 +194,6 @@ class StagedModelImageSource:
         if control_updates:
             writable_updates = self._filter_writable_updates(control_updates)
             if writable_updates:
-                if title_suffix=="manual":
-                    print(writable_updates)
                 self.model.set(writable_updates)
 
         pvs: list[str] = [
@@ -216,8 +216,6 @@ class StagedModelImageSource:
             )
 
         result = self.model.get(pvs)
-        if title_suffix=="manual":
-            print("Result:", result)
         beam = result.get(screen.particle_source)
         image = result.get(screen.image_pv) if screen.image_pv else None
         xrms_um, yrms_um, sigma_z_um, emit_x_um, emit_y_um = self._extract_scalars(

@@ -43,6 +43,12 @@ class BeamDashboard:
     IMAGE_PERCENTILE_LOW = 2.0
     IMAGE_PERCENTILE_HIGH = 99.7
     IMAGE_SCALE_WARMUP_FRAMES = 4
+    # Rolling time-window width for the scalar timeseries plot (seconds).
+    TIMESERIES_WINDOW_SECONDS = 120.0
+    # Rolling window for index/numeric x-axis mode (number of most recent points).
+    TIMESERIES_WINDOW_POINTS = 30
+    # Hard cap on history length to avoid unbounded memory growth.
+    MAX_HISTORY_POINTS = 2000
 
     def __init__(self, app_title: str):
         self.app_title = app_title
@@ -247,13 +253,15 @@ class BeamDashboard:
         x_axis_unit: str,
         x_axis_mode: str,
         image_placeholder: str = "Waiting for first shot...",
+        clear_history: bool = True,
     ) -> None:
         self.screen_label = screen_label
         self.x_axis_label = x_axis_label
         self.x_axis_unit = x_axis_unit
         self.x_axis_mode = x_axis_mode
-        for values in self.history_data.values():
-            values.clear()
+        if clear_history:
+            for values in self.history_data.values():
+                values.clear()
 
         self.image_artist.set_visible(False)
         self.image_artist.set_data(np.zeros((2, 2)))
@@ -341,6 +349,10 @@ class BeamDashboard:
         self.history_data["sigmaz"].append(frame.sigma_z_um)
         self.history_data["emx"].append(frame.norm_emit_x_um_rad)
         self.history_data["emy"].append(frame.norm_emit_y_um_rad)
+        # Trim to hard cap so history doesn't grow unboundedly.
+        if len(self.history_data["x"]) > self.MAX_HISTORY_POINTS:
+            for key in self.history_data:
+                self.history_data[key] = self.history_data[key][-self.MAX_HISTORY_POINTS:]
 
         self.timeseries_placeholder.set_visible(False)
         x_values = self.history_data["x"]
@@ -390,18 +402,44 @@ class BeamDashboard:
 
     def _update_timeseries_limits(self) -> None:
         if self.x_axis_mode == "time":
-            self.ax_ts.set_xlim(*self._pad_time_bounds(self.history_data["x"]))
-        else:
-            self.ax_ts.set_xlim(*self._pad_numeric_bounds(self.history_data["x"], minimum=0.5))
-        self.ax_ts.set_ylim(
-            *self._pad_numeric_bounds(
-                self.history_data["xrms"] + self.history_data["yrms"] + self.history_data["sigmaz"],
-                minimum=5.0,
+            # Rolling window: always show the most recent TIMESERIES_WINDOW_SECONDS.
+            now = datetime.now(tz=PACIFIC_TZ)
+            window = timedelta(seconds=self.TIMESERIES_WINDOW_SECONDS)
+            x_left = now - window
+            self.ax_ts.set_xlim(x_left, now)
+            # Compute y limits only from points inside the visible window.
+            xs = self.history_data["x"]
+            in_window = [i for i, xv in enumerate(xs) if xv >= x_left]
+            def _win_t(key):
+                d = self.history_data[key]
+                return [d[i] for i in in_window]
+            self.ax_ts.set_ylim(
+                *self._pad_numeric_bounds(_win_t("xrms") + _win_t("yrms") + _win_t("sigmaz"), minimum=5.0)
             )
-        )
-        self.ax_em.set_ylim(
-            *self._pad_numeric_bounds(self.history_data["emx"] + self.history_data["emy"], minimum=0.05)
-        )
+            self.ax_em.set_ylim(
+                *self._pad_numeric_bounds(_win_t("emx") + _win_t("emy"), minimum=0.05)
+            )
+        else:
+            # Rolling window: show last TIMESERIES_WINDOW_POINTS evaluations,
+            # scrolling left as new points arrive.
+            xs = self.history_data["x"]
+            n = len(xs)
+            win_start = max(0, n - self.TIMESERIES_WINDOW_POINTS)
+            if n > 1:
+                lo = float(xs[win_start])
+                hi = float(xs[-1])
+                span = hi - lo if hi != lo else 1.0
+                self.ax_ts.set_xlim(lo - span * 0.05, hi + span * 0.15)
+            else:
+                self.ax_ts.set_xlim(*self._pad_numeric_bounds([float(x) for x in xs] if xs else [0.0], minimum=0.5))
+            def _win_n(key):
+                return self.history_data[key][win_start:]
+            self.ax_ts.set_ylim(
+                *self._pad_numeric_bounds(_win_n("xrms") + _win_n("yrms") + _win_n("sigmaz"), minimum=5.0)
+            )
+            self.ax_em.set_ylim(
+                *self._pad_numeric_bounds(_win_n("emx") + _win_n("emy"), minimum=0.05)
+            )
 
     def _timeseries_title(self, screen_label: str, x_axis_label: str, x_axis_mode: str) -> str:
         if x_axis_mode == "time":

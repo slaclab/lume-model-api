@@ -488,9 +488,7 @@ async def live_stream_task(
 @app.cell
 def interactive_eval(
     MANUAL_INPUT_PVS,
-    PACIFIC_TZ,
     SCREEN_CONFIGS,
-    datetime,
     interactive_dashboard,
     interactive_eval_trigger,
     interactive_image_scale_mode,
@@ -499,32 +497,44 @@ def interactive_eval(
     interactive_source,
     set_interactive_status,
 ):
-    """Reactively evaluate the model whenever slider values change."""
-    print(f"[interactive_eval] triggered — eval_trigger={interactive_eval_trigger()}, slider values={[interactive_sliders[pv].value for pv in list(MANUAL_INPUT_PVS)[:3]]}...")
+    """Reactively evaluate the model whenever slider values change.
+
+    History accumulates across evals so the scalar timeseries scrolls left
+    like a live plot.  History is cleared only when the screen selection
+    changes (detected by comparing interactive_dashboard.screen_label).
+    The x-axis is the integer eval counter, ticking up with each change.
+    """
+    eval_idx = interactive_eval_trigger()
+    screen = interactive_screen_dropdown.value
+    interactive_screen_config = SCREEN_CONFIGS[screen]
+
+    # Reset (clearing history) when screen changes or on the very first eval.
+    if (interactive_dashboard.screen_label != screen
+            or not interactive_dashboard.history_data["x"]):
+        interactive_dashboard.reset(
+            interactive_screen_config.label,
+            "Eval #",
+            "",
+            "value",
+            image_placeholder=interactive_screen_config.image_message,
+            clear_history=True,
+        )
+
     manual_values = {
         name: float(interactive_sliders[name].value)
         for name in MANUAL_INPUT_PVS
     }
-    interactive_screen_config = SCREEN_CONFIGS[interactive_screen_dropdown.value]
-    interactive_dashboard.reset(
-        interactive_screen_config.label,
-        "Snapshot",
-        "",
-        "value",
-        image_placeholder=interactive_screen_config.image_message,
-    )
-    now = datetime.now(tz=PACIFIC_TZ)
     frame = interactive_source.snapshot(
-        interactive_screen_dropdown.value,
+        screen,
         control_updates=manual_values,
-        x_axis_value=0.0,
-        frame_index=0,
-        image_caption=now.strftime("%I:%M:%S %p"),
+        x_axis_value=float(eval_idx),
+        frame_index=eval_idx,
+        image_caption=f"Eval {eval_idx}",
         title_suffix="manual",
     )
     interactive_dashboard.update(frame, interactive_image_scale_mode.value)
     set_interactive_status(
-        f"Evaluated at {now.strftime('%I:%M:%S %p')} for {interactive_screen_dropdown.value}."
+        f"Eval #{eval_idx} for {screen}."
     )
 
 
@@ -535,6 +545,7 @@ def apply_machine_values(
     mo,
     model_input_names,
     provider,
+    set_interactive_eval_trigger,
     set_interactive_status,
     set_slider_display_values,
 ):
@@ -548,16 +559,15 @@ def apply_machine_values(
     mo.stop(not apply_machine_btn.value)
     try:
         live_values = provider.read_inputs(model_input_names)
-        print(f"[apply_machine_values] Got {len(live_values)} EPICS values: { {k: round(v, 4) for k, v in list(live_values.items())[:3]} }...")
         new_display = {
             pv: float(live_values[pv]) for pv in MANUAL_INPUT_PVS if pv in live_values
         }
         set_slider_display_values(new_display)
+        set_interactive_eval_trigger(lambda x: x + 1)
         set_interactive_status(
             f"Applied {len(new_display)} machine values to sliders."
         )
     except Exception as exc:
-        print(f"[apply_machine_values] Exception: {exc}")
         set_interactive_status(f"Failed to read machine values: {exc}")
 
 
