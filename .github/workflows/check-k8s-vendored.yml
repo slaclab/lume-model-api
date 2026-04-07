@@ -3,9 +3,6 @@ name: check-k8s-vendored
 on:
   pull_request:
   push:
-    branches:
-      - main
-      - pool
 
 jobs:
   check-vendored-files:
