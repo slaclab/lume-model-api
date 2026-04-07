@@ -84,23 +84,8 @@ def model_selector(MODELS, mo):
 
 
 @app.cell
-def header(MODEL_INFO, mo, model_dropdown):
-    _parts = []
-    for _k, _v in MODEL_INFO.items():
-        _desc = _v["description"].replace("&", "&amp;").replace('"', "&quot;")
-        _parts.append(_k + ": " + _desc)
-    _tooltip = "&#10;".join(_parts)
-    _info_icon = mo.Html(
-        '<abbr title="' + _tooltip + '" style="cursor:help;text-decoration:none;font-size:1.2em;">\u2139\ufe0f</abbr>'
-    )
-    mo.hstack(
-        [
-            mo.md("# LUME Live Stream Monitor"),
-            mo.hstack([model_dropdown, _info_icon], gap="0.4rem", align="center"),
-        ],
-        justify="space-between",
-        align="center",
-    )
+def header(mo):
+    mo.md("# LUME Live Stream Monitor")
 
 
 @app.cell
@@ -130,7 +115,7 @@ def interactive_dashboard_setup(BeamDashboard):
 
 
 @app.cell
-def live_controls(mo, SCREEN_KEYS, model_dropdown):
+def live_controls(MODEL_INFO, mo, SCREEN_KEYS, model_dropdown):
     live_screen_dropdown = mo.ui.dropdown(
         options=SCREEN_KEYS, value="OTR4", label="Screen"
     )
@@ -154,16 +139,31 @@ def live_controls(mo, SCREEN_KEYS, model_dropdown):
     live_show_emit_y = mo.ui.checkbox(value=True, label="eps_n,y")
     live_show_twiss_a_beta = mo.ui.checkbox(value=True, label="x.beta")
     live_show_twiss_b_beta = mo.ui.checkbox(value=True, label="y.beta")
+    _rows = []
+    for _k, _v in MODEL_INFO.items():
+        _rows.append("<b>" + _k + "</b>: " + _v["description"])
+    _model_info = mo.Html(
+        "<details style='display:inline-block;'>"
+        "<summary style='cursor:pointer;list-style:none;padding:3px 8px;"
+        "border:1px solid #aaa;border-radius:4px;font-size:0.85em;'>&#9432; info</summary>"
+        "<div style='border:1px solid #555;border-radius:4px;padding:10px 14px;"
+        "max-width:500px;font-size:0.82em;line-height:1.6;white-space:normal;'>"
+        + "<br><br>".join(_rows)
+        + "</div></details>"
+    )
     live_controls_ui = mo.vstack(
         [
             mo.hstack(
                 [
-                    live_screen_dropdown,
-                    live_poll_period_slider,
-                    live_image_scale_mode,
+                    mo.hstack(
+                        [live_screen_dropdown, live_poll_period_slider, live_image_scale_mode],
+                        gap="1.0rem",
+                        justify="start",
+                    ),
+                    mo.hstack([model_dropdown, _model_info], gap="0.5rem", align="center"),
                 ],
-                gap="1.0rem",
-                justify="start",
+                justify="space-between",
+                align="center",
             ),
             mo.hstack(
                 [
@@ -198,7 +198,7 @@ def live_controls(mo, SCREEN_KEYS, model_dropdown):
 
 
 @app.cell
-def interactive_controls(mo, SCREEN_KEYS, model_dropdown):
+def interactive_controls(MODEL_INFO, mo, SCREEN_KEYS, model_dropdown):
     interactive_screen_dropdown = mo.ui.dropdown(
         options=SCREEN_KEYS, value="OTR4", label="Screen"
     )
@@ -214,22 +214,40 @@ def interactive_controls(mo, SCREEN_KEYS, model_dropdown):
     interactive_show_emit_y = mo.ui.checkbox(value=True, label="eps_n,y")
     interactive_show_twiss_a_beta = mo.ui.checkbox(value=True, label="x.beta")
     interactive_show_twiss_b_beta = mo.ui.checkbox(value=True, label="y.beta")
-    # All display controls in a single compact row above the dashboard
+    _rows = []
+    for _k, _v in MODEL_INFO.items():
+        _rows.append("<b>" + _k + "</b>: " + _v["description"])
+    _model_info = mo.Html(
+        "<details style='display:inline-block;'>"
+        "<summary style='cursor:pointer;list-style:none;padding:3px 8px;"
+        "border:1px solid #aaa;border-radius:4px;font-size:0.85em;'>&#9432; info</summary>"
+        "<div style='border:1px solid #555;border-radius:4px;padding:10px 14px;"
+        "max-width:500px;font-size:0.82em;line-height:1.6;white-space:normal;'>"
+        + "<br><br>".join(_rows)
+        + "</div></details>"
+    )
     interactive_controls_ui = mo.hstack(
         [
-            interactive_screen_dropdown,
-            interactive_image_scale_mode,
-            mo.md("**Show:**"),
-            interactive_show_sigma_x,
-            interactive_show_sigma_y,
-            interactive_show_sigma_z,
-            interactive_show_emit_x,
-            interactive_show_emit_y,
-            interactive_show_twiss_a_beta,
-            interactive_show_twiss_b_beta,
+            mo.hstack(
+                [
+                    interactive_screen_dropdown,
+                    interactive_image_scale_mode,
+                    mo.md("**Show:**"),
+                    interactive_show_sigma_x,
+                    interactive_show_sigma_y,
+                    interactive_show_sigma_z,
+                    interactive_show_emit_x,
+                    interactive_show_emit_y,
+                    interactive_show_twiss_a_beta,
+                    interactive_show_twiss_b_beta,
+                ],
+                gap="1.0",
+                justify="start",
+            ),
+            mo.hstack([model_dropdown, _model_info], gap="0.5rem", align="center"),
         ],
-        gap="1.0",
-        justify="start",
+        justify="space-between",
+        align="center",
     )
     return (
         interactive_controls_ui,
