@@ -398,8 +398,8 @@ def layout(
         [
             mo.hstack(
                 [interactive_controls_ui, apply_machine_btn],
-                widths=[0.65, 0.35],
-                gap="5rem",
+                widths=[0.55, 0.45],
+                gap="1rem",
             ),
             interactive_dashboard_widget,
             interactive_slider_controls_ui,

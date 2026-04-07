@@ -17,6 +17,7 @@ jobs:
         run: |
           files=(
             live_stream_monitor.py
+            dashboard.py
             live_stream_monitor.css
             live_stream_monitor.head.html
           )
