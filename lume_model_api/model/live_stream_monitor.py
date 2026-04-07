@@ -396,17 +396,16 @@ def layout(
     )
     interactive_content = mo.vstack(
         [
-            interactive_controls_ui,
-            interactive_dashboard_widget,
             mo.hstack(
-                [interactive_slider_controls_ui, apply_machine_btn],
-                widths=[0.7, 0.3],
-                gap="0.2rem",
-                align="end",
+                [interactive_controls_ui, apply_machine_btn],
+                widths=[0.65, 0.35],
+                gap="5rem",
             ),
+            interactive_dashboard_widget,
+            interactive_slider_controls_ui,
             interactive_status,
         ],
-        gap="0.5rem",
+        gap="0.8",
     )
     tabs = mo.ui.tabs(
         {
