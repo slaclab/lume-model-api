@@ -370,6 +370,7 @@ class BeamDashboard:
             frame.twiss_s is not None
             and frame.twiss_a_beta is not None
             and frame.twiss_b_beta is not None
+            and len(frame.twiss_s) == len(frame.twiss_a_beta) == len(frame.twiss_b_beta)
         ):
             self.twiss_placeholder.set_visible(False)
             self.line_twiss_a.set_data(frame.twiss_s, frame.twiss_a_beta)

@@ -79,7 +79,6 @@ def header(mo):
 @app.cell
 def source_setup(EpicsInputProvider, EPICS_INPUT_PVS, FAKE_INPUT_SPECS, StagedModelImageSource):
     source = StagedModelImageSource.create_default()
-    interactive_source = StagedModelImageSource.create_default()
     provider = EpicsInputProvider()
     # Keep fake and real EPICS deployments on the same explicit PV contract.
     model_input_names = list(EPICS_INPUT_PVS)
@@ -88,7 +87,7 @@ def source_setup(EpicsInputProvider, EPICS_INPUT_PVS, FAKE_INPUT_SPECS, StagedMo
     # being model-writable variables.
     _default_map = {spec.pv_name: spec.default for spec in FAKE_INPUT_SPECS}
     initial_inputs = {name: float(_default_map.get(name, 0.0)) for name in model_input_names}
-    return initial_inputs, interactive_source, model_input_names, provider, source
+    return initial_inputs, model_input_names, provider, source
 
 
 @app.cell
@@ -497,8 +496,8 @@ def interactive_eval(
     interactive_image_scale_mode,
     interactive_screen_dropdown,
     interactive_sliders,
-    interactive_source,
     set_interactive_status,
+    source,
 ):
     """Reactively evaluate the model whenever slider values change.
 
@@ -527,7 +526,7 @@ def interactive_eval(
         name: float(interactive_sliders[name].value)
         for name in MANUAL_INPUT_PVS
     }
-    frame = interactive_source.snapshot(
+    frame = source.snapshot(
         screen,
         control_updates=manual_values,
         x_axis_value=float(eval_idx),
