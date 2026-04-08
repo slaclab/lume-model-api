@@ -25,7 +25,7 @@ class FakePVSpec:
     period_s: float
     phase_offset_rad: float = 0.0
 
-
+SCALE = 0.25
 FAKE_INPUT_SPECS = [
     #FakePVSpec("camr_in20_186_r_dist", "CAMR:IN20:186:R_DIST", 423.867825, 210.21247820852545, 499.9996083265339, 23.0, 0.0),
     #FakePVSpec("camr_in20_186_xrms", "CAMR:IN20:186:XRMS", 300, 200, 400, 23.0, 0.0),
@@ -41,6 +41,10 @@ FAKE_INPUT_SPECS = [
     FakePVSpec("quad_in20_441_bctrl", "QUAD:IN20:441:BCTRL", -0.17938799998564897, -1.0782202690353522, 7.559878303179915, 22.0, 3.6),
     FakePVSpec("quad_in20_511_bctrl", "QUAD:IN20:511:BCTRL", 2.852171999771826, -1.0792451325247663, 7.5582919025608595, 39.0, 4.0),
     FakePVSpec("quad_in20_525_bctrl", "QUAD:IN20:525:BCTRL", -3.218399988942528, -7.557932980106783, -1.0800286565992732, 15.0, 4.4),
+    FakePVSpec("quad_in20_631_bctrl", "QUAD:IN20:631:BCTRL", 7.335358881640616, 7.335358881640616*(1-SCALE), 7.335358881640616*(1+SCALE), 1.0, 4.7),
+    FakePVSpec("quad_in20_651_bctrl", "QUAD:IN20:651:BCTRL", -5.821093449409309, -5.821093449409309*(1+SCALE), -5.821093449409309*(1-SCALE), 29.0, 5.0),
+    FakePVSpec("xcor_in20_641_bctrl", "XCOR:IN20:641:BCTRL", 0.0, 0.0, 0.0, 19.0, 5.3),
+    FakePVSpec("ycor_in20_642_bctrl", "YCOR:IN20:642:BCTRL", 0.0, 0.0, 0.0, 19.0, 5.6),
 ]
 
 
@@ -82,7 +86,10 @@ class FakeLumeInputIOC(PVGroup):
     quad_in20_441_bctrl = pvproperty(name="QUAD:IN20:441:BCTRL", value=-0.17938799998564897)
     quad_in20_511_bctrl = pvproperty(name="QUAD:IN20:511:BCTRL", value=2.852171999771826)
     quad_in20_525_bctrl = pvproperty(name="QUAD:IN20:525:BCTRL", value=-3.218399988942528)
-
+    quad_in20_631_bctrl = pvproperty(name="QUAD:IN20:631:BCTRL", value=-0.5)    
+    quad_in20_651_bctrl = pvproperty(name="QUAD:IN20:651:BCTRL", value=0.5)
+    xcor_in20_641_bctrl = pvproperty(name="XCOR:IN20:641:BCTRL", value=0.0)
+    ycor_in20_642_bctrl = pvproperty(name="YCOR:IN20:642:BCTRL", value=0.0)
     def __init__(self, *args, update_period: float = 0.5, noise_scale: float = 0.03, **kwargs):
         super().__init__(*args, **kwargs)
         self.update_period = update_period

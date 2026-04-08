@@ -41,7 +41,7 @@ def imports():
     if str(repo_root) not in sys.path:
         sys.path.insert(0, str(repo_root))
 
-    from lume_visualizations.beam_monitor import StagedModelImageSource
+    from lume_visualizations.beam_monitor import ModelImageSource, MODEL_INFO, MODELS
     from lume_visualizations.config import (
         EPICS_INPUT_PVS,
         MANUAL_INPUT_PVS,
@@ -66,9 +66,21 @@ def imports():
         SCREEN_KEYS,
         BeamDashboard,
         EpicsInputProvider,
-        StagedModelImageSource,
+        MODEL_INFO,
+        MODELS,
+        ModelImageSource,
         VisibilitySettings,
     )
+
+
+@app.cell
+def model_selector(MODELS, mo):
+    model_dropdown = mo.ui.dropdown(
+        options=list(MODELS.keys()),
+        value="cu_hxr_staged",
+        label="Model",
+    )
+    return (model_dropdown,)
 
 
 @app.cell
@@ -77,8 +89,8 @@ def header(mo):
 
 
 @app.cell
-def source_setup(EpicsInputProvider, EPICS_INPUT_PVS, FAKE_INPUT_SPECS, StagedModelImageSource):
-    source = StagedModelImageSource.create_default()
+def source_setup(EpicsInputProvider, EPICS_INPUT_PVS, FAKE_INPUT_SPECS, ModelImageSource, model_dropdown):
+    source = ModelImageSource(model_name=model_dropdown.value, reset_values={})
     provider = EpicsInputProvider()
     # Keep fake and real EPICS deployments on the same explicit PV contract.
     model_input_names = list(EPICS_INPUT_PVS)
@@ -103,7 +115,7 @@ def interactive_dashboard_setup(BeamDashboard):
 
 
 @app.cell
-def live_controls(mo, SCREEN_KEYS):
+def live_controls(MODEL_INFO, mo, SCREEN_KEYS, model_dropdown):
     live_screen_dropdown = mo.ui.dropdown(
         options=SCREEN_KEYS, value="OTR4", label="Screen"
     )
@@ -127,14 +139,28 @@ def live_controls(mo, SCREEN_KEYS):
     live_show_emit_y = mo.ui.checkbox(value=True, label="eps_n,y")
     live_show_twiss_a_beta = mo.ui.checkbox(value=True, label="x.beta")
     live_show_twiss_b_beta = mo.ui.checkbox(value=True, label="y.beta")
+    _rows = []
+    for _k, _v in MODEL_INFO.items():
+        _rows.append("<b>" + _k + "</b>: " + _v["description"])
+    _model_info = mo.Html(
+        "<details style='display:inline-block;'>"
+        "<summary style='cursor:pointer;list-style:none;padding:3px 8px;"
+        "border:1px solid #aaa;border-radius:4px;font-size:0.85em;'>&#9432; info</summary>"
+        "<div style='border:1px solid #555;border-radius:4px;padding:10px 14px;"
+        "max-width:500px;font-size:0.82em;line-height:1.6;white-space:normal;'>"
+        + "<br><br>".join(_rows)
+        + "</div></details>"
+    )
     live_controls_ui = mo.vstack(
         [
             mo.hstack(
-                [
-                    live_screen_dropdown,
-                    live_poll_period_slider,
-                    live_image_scale_mode,
-                ],
+                [model_dropdown, _model_info],
+                gap="0.5rem",
+                justify="start",
+                align="center",
+            ),
+            mo.hstack(
+                [live_screen_dropdown, live_poll_period_slider, live_image_scale_mode],
                 gap="1.0rem",
                 justify="start",
             ),
@@ -171,7 +197,7 @@ def live_controls(mo, SCREEN_KEYS):
 
 
 @app.cell
-def interactive_controls(mo, SCREEN_KEYS):
+def interactive_controls(MODEL_INFO, mo, SCREEN_KEYS, model_dropdown, apply_machine_btn):
     interactive_screen_dropdown = mo.ui.dropdown(
         options=SCREEN_KEYS, value="OTR4", label="Screen"
     )
@@ -187,22 +213,45 @@ def interactive_controls(mo, SCREEN_KEYS):
     interactive_show_emit_y = mo.ui.checkbox(value=True, label="eps_n,y")
     interactive_show_twiss_a_beta = mo.ui.checkbox(value=True, label="x.beta")
     interactive_show_twiss_b_beta = mo.ui.checkbox(value=True, label="y.beta")
-    # All display controls in a single compact row above the dashboard
-    interactive_controls_ui = mo.hstack(
+    _rows = []
+    for _k, _v in MODEL_INFO.items():
+        _rows.append("<b>" + _k + "</b>: " + _v["description"])
+    _model_info = mo.Html(
+        "<details style='display:inline-block;'>"
+        "<summary style='cursor:pointer;list-style:none;padding:3px 8px;"
+        "border:1px solid #aaa;border-radius:4px;font-size:0.85em;'>&#9432; info</summary>"
+        "<div style='border:1px solid #555;border-radius:4px;padding:10px 14px;"
+        "max-width:500px;font-size:0.82em;line-height:1.6;white-space:normal;'>"
+        + "<br><br>".join(_rows)
+        + "</div></details>"
+    )
+    interactive_controls_ui = mo.vstack(
         [
-            interactive_screen_dropdown,
-            interactive_image_scale_mode,
-            mo.md("**Show:**"),
-            interactive_show_sigma_x,
-            interactive_show_sigma_y,
-            interactive_show_sigma_z,
-            interactive_show_emit_x,
-            interactive_show_emit_y,
-            interactive_show_twiss_a_beta,
-            interactive_show_twiss_b_beta,
+            mo.hstack(
+                [model_dropdown, _model_info],
+                gap="0.5rem",
+                justify="start",
+                align="center",
+            ),
+            mo.hstack(
+                [
+                    interactive_screen_dropdown,
+                    interactive_image_scale_mode,
+                    mo.md("**Show:**"),
+                    interactive_show_sigma_x,
+                    interactive_show_sigma_y,
+                    interactive_show_sigma_z,
+                    interactive_show_emit_x,
+                    interactive_show_emit_y,
+                    interactive_show_twiss_a_beta,
+                    interactive_show_twiss_b_beta,
+                    apply_machine_btn
+                ],
+                gap="1.0",
+                justify="start",
+            ),
         ],
-        gap="1.0",
-        justify="start",
+        gap="0.8rem",
     )
     return (
         interactive_controls_ui,
@@ -226,6 +275,7 @@ def interactive_slider_controls(
     mo,
     set_interactive_eval_trigger,
     slider_display_values,
+    source
 ):
     slider_labels = {
         "SOLN:IN20:121:BCTRL": "SOLN:IN20:121:BCTRL",
@@ -239,6 +289,10 @@ def interactive_slider_controls(
         "QUAD:IN20:441:BCTRL": "QUAD:IN20:441:BCTRL",
         "QUAD:IN20:511:BCTRL": "QUAD:IN20:511:BCTRL",
         "QUAD:IN20:525:BCTRL": "QUAD:IN20:525:BCTRL",
+        "QUAD:IN20:631:BCTRL": "QUAD:IN20:631:BCTRL",
+        "QUAD:IN20:651:BCTRL": "QUAD:IN20:651:BCTRL",
+        "XCOR:IN20:641:BCTRL": "XCOR:IN20:641:BCTRL",
+        "YCOR:IN20:642:BCTRL": "YCOR:IN20:642:BCTRL",
     }
     slider_specs = {spec.pv_name: spec for spec in FAKE_INPUT_SPECS}
     # Resolve display overrides once (set by the "apply machine values" button).
@@ -248,12 +302,18 @@ def interactive_slider_controls(
     slider_rows = []
     current_row = []
     for index, pv_name in enumerate(MANUAL_INPUT_PVS):
+        if pv_name not in source._writable_variable_names:
+            continue
         spec = slider_specs[pv_name]
         _range = float(spec.maximum) - float(spec.minimum)
-        _step = max(round(_range / 1000, 3), 0.001)
+        if _range <= 0:
+            _start, _stop, _step = -0.1, 0.1, 0.001
+        else:
+            _start, _stop = float(spec.minimum), float(spec.maximum)
+            _step = max(round(_range / 1000, 3), 0.001)
         slider = mo.ui.slider(
-            start=float(spec.minimum),
-            stop=float(spec.maximum),
+            start=_start,
+            stop=_stop,
             step=_step,
             value=round(float(_display_vals.get(pv_name, initial_inputs[pv_name])), 3),
             label=slider_labels.get(pv_name, pv_name),
@@ -377,7 +437,6 @@ def interactive_visibility_sync(
 @app.cell
 def layout(
     active_tab,
-    apply_machine_btn,
     interactive_controls_ui,
     interactive_dashboard_widget,
     interactive_slider_controls_ui,
@@ -396,11 +455,7 @@ def layout(
     )
     interactive_content = mo.vstack(
         [
-            mo.hstack(
-                [interactive_controls_ui, apply_machine_btn],
-                widths=[0.55, 0.45],
-                gap="1rem",
-            ),
+            interactive_controls_ui,
             interactive_dashboard_widget,
             interactive_slider_controls_ui,
             interactive_status,
@@ -523,7 +578,7 @@ def interactive_eval(
 
     manual_values = {
         name: float(interactive_sliders[name].value)
-        for name in MANUAL_INPUT_PVS
+        for name in MANUAL_INPUT_PVS if name in source._writable_variable_names
     }
     frame = source.snapshot(
         screen,
