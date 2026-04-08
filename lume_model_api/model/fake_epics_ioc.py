@@ -25,7 +25,7 @@ class FakePVSpec:
     period_s: float
     phase_offset_rad: float = 0.0
 
-SCALE = 0.1
+SCALE = 0.25
 FAKE_INPUT_SPECS = [
     #FakePVSpec("camr_in20_186_r_dist", "CAMR:IN20:186:R_DIST", 423.867825, 210.21247820852545, 499.9996083265339, 23.0, 0.0),
     #FakePVSpec("camr_in20_186_xrms", "CAMR:IN20:186:XRMS", 300, 200, 400, 23.0, 0.0),

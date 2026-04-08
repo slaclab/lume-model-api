@@ -197,7 +197,7 @@ def live_controls(MODEL_INFO, mo, SCREEN_KEYS, model_dropdown):
 
 
 @app.cell
-def interactive_controls(MODEL_INFO, mo, SCREEN_KEYS, model_dropdown):
+def interactive_controls(MODEL_INFO, mo, SCREEN_KEYS, model_dropdown, apply_machine_btn):
     interactive_screen_dropdown = mo.ui.dropdown(
         options=SCREEN_KEYS, value="OTR4", label="Screen"
     )
@@ -245,6 +245,7 @@ def interactive_controls(MODEL_INFO, mo, SCREEN_KEYS, model_dropdown):
                     interactive_show_emit_y,
                     interactive_show_twiss_a_beta,
                     interactive_show_twiss_b_beta,
+                    apply_machine_btn
                 ],
                 gap="1.0",
                 justify="start",
@@ -274,6 +275,7 @@ def interactive_slider_controls(
     mo,
     set_interactive_eval_trigger,
     slider_display_values,
+    source
 ):
     slider_labels = {
         "SOLN:IN20:121:BCTRL": "SOLN:IN20:121:BCTRL",
@@ -300,6 +302,8 @@ def interactive_slider_controls(
     slider_rows = []
     current_row = []
     for index, pv_name in enumerate(MANUAL_INPUT_PVS):
+        if pv_name not in source._writable_variable_names:
+            continue
         spec = slider_specs[pv_name]
         _range = float(spec.maximum) - float(spec.minimum)
         if _range <= 0:
@@ -433,7 +437,6 @@ def interactive_visibility_sync(
 @app.cell
 def layout(
     active_tab,
-    apply_machine_btn,
     interactive_controls_ui,
     interactive_dashboard_widget,
     interactive_slider_controls_ui,
@@ -452,11 +455,7 @@ def layout(
     )
     interactive_content = mo.vstack(
         [
-            mo.hstack(
-                [interactive_controls_ui, apply_machine_btn],
-                widths=[0.55, 0.45],
-                gap="1rem",
-            ),
+            interactive_controls_ui,
             interactive_dashboard_widget,
             interactive_slider_controls_ui,
             interactive_status,
@@ -579,7 +578,7 @@ def interactive_eval(
 
     manual_values = {
         name: float(interactive_sliders[name].value)
-        for name in MANUAL_INPUT_PVS
+        for name in MANUAL_INPUT_PVS if name in source._writable_variable_names
     }
     frame = source.snapshot(
         screen,
