@@ -628,7 +628,7 @@ async def quad_scan_task(
         quad_pv = "QUAD:IN20:525:BCTRL"
     if quad_pv not in interactive_sliders:
         set_interactive_status("Quad " + quad_pv + " not available in current sliders.")
-        return
+        mo.stop(True)
     slider = interactive_sliders[quad_pv]
     q_min = float(slider.start)
     q_max = float(slider.stop)
