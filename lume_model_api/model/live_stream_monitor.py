@@ -629,9 +629,9 @@ async def quad_scan_task(
     if quad_pv not in interactive_sliders:
         set_interactive_status("Quad " + quad_pv + " not available in current sliders.")
         mo.stop(True)
-    slider = interactive_sliders[quad_pv]
-    q_min = float(slider.start)
-    q_max = float(slider.stop)
+    _slider = interactive_sliders[quad_pv]
+    q_min = float(_slider.start)
+    q_max = float(_slider.stop)
     n_steps = 10
     scan_token = scan_run_token() + 1
     set_scan_run_token(scan_token)
