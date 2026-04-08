@@ -197,7 +197,7 @@ def live_controls(MODEL_INFO, mo, SCREEN_KEYS, model_dropdown):
 
 
 @app.cell
-def interactive_controls(MODEL_INFO, mo, SCREEN_KEYS, model_dropdown, apply_machine_btn):
+def interactive_controls(MODEL_INFO, mo, SCREEN_KEYS, model_dropdown, apply_machine_btn, scan_quad_btn):
     interactive_screen_dropdown = mo.ui.dropdown(
         options=SCREEN_KEYS, value="OTR4", label="Screen"
     )
@@ -234,6 +234,10 @@ def interactive_controls(MODEL_INFO, mo, SCREEN_KEYS, model_dropdown, apply_mach
                 align="center",
             ),
             mo.hstack(
+                [scan_quad_btn],
+                justify="start",
+            ),
+            mo.hstack(
                 [
                     interactive_screen_dropdown,
                     interactive_image_scale_mode,
@@ -245,7 +249,7 @@ def interactive_controls(MODEL_INFO, mo, SCREEN_KEYS, model_dropdown, apply_mach
                     interactive_show_emit_y,
                     interactive_show_twiss_a_beta,
                     interactive_show_twiss_b_beta,
-                    apply_machine_btn
+                    apply_machine_btn,
                 ],
                 gap="1.0",
                 justify="start",
@@ -340,6 +344,12 @@ def apply_machine_values_button(mo):
 
 
 @app.cell
+def scan_quad_button(mo):
+    scan_quad_btn = mo.ui.run_button(label="Scan Quad")
+    return (scan_quad_btn,)
+
+
+@app.cell
 def state(mo):
     live_status_text, set_live_status = mo.state(
         "Waiting for live monitoring tab."
@@ -354,17 +364,21 @@ def state(mo):
     # Updated by the "apply machine values" button — causes slider cell to
     # re-run with new default values so the browser re-renders them.
     slider_display_values, set_slider_display_values = mo.state({})
+    # Tracks active quad scan; incrementing cancels any in-progress scan.
+    scan_run_token, set_scan_run_token = mo.state(0)
     return (
         active_tab,
         interactive_eval_trigger,
         interactive_status_text,
         live_run_token,
         live_status_text,
+        scan_run_token,
         set_active_tab,
         set_interactive_eval_trigger,
         set_interactive_status,
         set_live_run_token,
         set_live_status,
+        set_scan_run_token,
         set_slider_display_values,
         slider_display_values,
     )
@@ -592,6 +606,51 @@ def interactive_eval(
     set_interactive_status(
         f"Eval #{eval_idx} for {screen}."
     )
+
+
+@app.cell
+async def quad_scan_task(
+    asyncio,
+    interactive_sliders,
+    mo,
+    model_dropdown,
+    scan_quad_btn,
+    scan_run_token,
+    set_interactive_eval_trigger,
+    set_interactive_status,
+    set_scan_run_token,
+    set_slider_display_values,
+):
+    mo.stop(not scan_quad_btn.value)
+    if model_dropdown.value == "cu_hxr_bmad":
+        quad_pv = "QUAD:IN20:631:BCTRL"
+    else:
+        quad_pv = "QUAD:IN20:525:BCTRL"
+    if quad_pv not in interactive_sliders:
+        set_interactive_status("Quad " + quad_pv + " not available in current sliders.")
+        return
+    slider = interactive_sliders[quad_pv]
+    q_min = float(slider.start)
+    q_max = float(slider.stop)
+    n_steps = 10
+    scan_token = scan_run_token() + 1
+    set_scan_run_token(scan_token)
+
+    async def _run_scan(token):
+        step_values = [round(q_min + (q_max - q_min) * i / (n_steps - 1), 4) for i in range(n_steps)]
+        for step_idx, val in enumerate(step_values):
+            if scan_run_token() != token:
+                return
+            set_interactive_status(
+                "Scanning " + quad_pv + ": step " + str(step_idx + 1) + "/" + str(n_steps) + ",  value = " + str(val)
+            )
+            set_slider_display_values(lambda d, v=val, pv=quad_pv: {**d, pv: v})
+            set_interactive_eval_trigger(lambda x: x + 1)
+            await asyncio.sleep(1.0)
+        if scan_run_token() == token:
+            set_interactive_status("Scan of " + quad_pv + " complete (" + str(n_steps) + " steps).")
+
+    asyncio.create_task(_run_scan(scan_token))
 
 
 @app.cell
