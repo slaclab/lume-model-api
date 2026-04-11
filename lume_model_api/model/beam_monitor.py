@@ -32,12 +32,12 @@ def _tao_model_workdir(lattice_path: str):
     finally:
         os.chdir(previous_cwd)
 
-def _create_cu_hxr_staged_model(start_element="OTR2", end_element="OTR4"):
+def _create_cu_hxr_staged_model(start_element="OTR2", end_element="TD11"):
     from virtual_accelerator.models.staged_model import get_cu_hxr_staged_model
     return get_cu_hxr_staged_model(start_element=start_element, end_element=end_element, track_beam=True)
 
 
-def _create_cu_hxr_bmad_model(start_element="OTR2", end_element="OTR4"):
+def _create_cu_hxr_bmad_model(start_element="OTR2", end_element="TD11"):
     from virtual_accelerator.models.cu_hxr import get_cu_hxr_bmad_model
     return get_cu_hxr_bmad_model(start_element=start_element, end_element=end_element, track_beam=True)
 
@@ -47,8 +47,8 @@ MODELS = {
 }
 
 MODEL_INFO = {
-    "cu_hxr_staged": {"description": "Staged LUMEModel chaining the LCLS Cu Injector ML model (predicting at OTR2)with a Bmad beamline simulation tracking from OTR2 to OTR4."},
-    "cu_hxr_bmad": {"description": "LUMEModel of Bmad linac simulation tracking from OTR2 to OTR4."},
+    "cu_hxr_staged": {"description": "Staged LUMEModel chaining the LCLS Cu Injector ML model (predicting at OTR2) with a Bmad beamline simulation tracking from OTR2 to TD11."},
+    "cu_hxr_bmad": {"description": "LUMEModel of Bmad linac simulation tracking from OTR2 to TD11."},
 }
 
 

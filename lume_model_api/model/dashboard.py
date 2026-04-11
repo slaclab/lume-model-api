@@ -16,6 +16,14 @@ import numpy as np
 
 PACIFIC_TZ = ZoneInfo("US/Pacific")
 
+SIGMA_X_LABEL = r"$\sigma_x\ (\mu\mathrm{m})$"
+SIGMA_Y_LABEL = r"$\sigma_y\ (\mu\mathrm{m})$"
+SIGMA_Z_LABEL = r"$\sigma_z\ (\mu\mathrm{m})$"
+EMIT_X_LABEL = r"$\epsilon_{n,x}\ (\mu\mathrm{m}\cdot\mathrm{rad})$"
+EMIT_Y_LABEL = r"$\epsilon_{n,y}\ (\mu\mathrm{m}\cdot\mathrm{rad})$"
+EMIT_LABEL = r"$\epsilon_n\ (\mu\mathrm{m}\cdot\mathrm{rad})$"
+UM_LABEL = r"$\mu\mathrm{m}$"
+
 
 @dataclass(frozen=True)
 class VisibilitySettings:
@@ -141,19 +149,19 @@ class BeamDashboard:
             transform=self.ax_ps.transAxes,
             fontsize=11,
         )
-        self.ax_ps.set_xlabel("x  (um)", fontsize=8)
+        self.ax_ps.set_xlabel(f"x  ({UM_LABEL})", fontsize=8)
         self.ax_ps.set_ylabel("px  (eV/c)", fontsize=8)
 
         self.ax_ts = self.fig.add_subplot(gs[1, 0])
         self._style_ax(self.ax_ts)
         self.line_x = self.ax_ts.plot(
-            [], [], color=self.BLUE, lw=1.8, marker="o", ms=5, label="sigma_x  (um)"
+            [], [], color=self.BLUE, lw=1.8, marker="o", ms=5, label=SIGMA_X_LABEL
         )[0]
         self.line_y = self.ax_ts.plot(
-            [], [], color=self.CORAL, lw=1.8, marker="s", ms=5, label="sigma_y  (um)"
+            [], [], color=self.CORAL, lw=1.8, marker="s", ms=5, label=SIGMA_Y_LABEL
         )[0]
         self.line_z = self.ax_ts.plot(
-            [], [], color=self.GOLD, lw=1.8, marker="D", ms=4, label="sigma_z  (um)"
+            [], [], color=self.GOLD, lw=1.8, marker="D", ms=4, label=SIGMA_Z_LABEL
         )[0]
         self.vline = self.ax_ts.axvline(
             0.0, color="white", lw=1.0, alpha=0.5, linestyle=":"
@@ -173,7 +181,7 @@ class BeamDashboard:
             marker="^",
             ms=5,
             linestyle="--",
-            label="eps_n,x  (um.rad)",
+            label=EMIT_X_LABEL,
         )[0]
         self.line_emy = self.ax_em.plot(
             [],
@@ -183,9 +191,9 @@ class BeamDashboard:
             marker="v",
             ms=5,
             linestyle="--",
-            label="eps_n,y  (um.rad)",
+            label=EMIT_Y_LABEL,
         )[0]
-        self.ax_em.set_ylabel("Norm. emittance  (um.rad)", fontsize=8)
+        self.ax_em.set_ylabel(EMIT_LABEL, fontsize=8)
         self.timeseries_placeholder = self.ax_ts.text(
             0.5,
             0.5,
@@ -298,8 +306,8 @@ class BeamDashboard:
             fontsize=9,
             pad=6,
         )
-        self.ax_ts.set_ylabel("RMS beam size  (um)", fontsize=8)
-        self.ax_em.set_ylabel("Norm. emittance  (um.rad)", fontsize=8)
+        self.ax_ts.set_ylabel(f"RMS beam size  ({UM_LABEL})", fontsize=8)
+        self.ax_em.set_ylabel(f"Norm. emittance  ({UM_LABEL}.rad)", fontsize=8)
         self._configure_x_axis()
 
         self.ax_ts.set_xlim(-1.0, 1.0)
@@ -510,11 +518,11 @@ class BeamDashboard:
         handles = []
         labels = []
         for line, label in [
-            (self.line_x, "sigma_x  (um)"),
-            (self.line_y, "sigma_y  (um)"),
-            (self.line_z, "sigma_z  (um)"),
-            (self.line_emx, "eps_n,x  (um.rad)"),
-            (self.line_emy, "eps_n,y  (um.rad)"),
+            (self.line_x, SIGMA_X_LABEL),
+            (self.line_y, SIGMA_Y_LABEL),
+            (self.line_z, SIGMA_Z_LABEL),
+            (self.line_emx, EMIT_X_LABEL),
+            (self.line_emy, EMIT_Y_LABEL),
         ]:
             if line.get_visible():
                 handles.append(line)

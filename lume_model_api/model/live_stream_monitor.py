@@ -132,13 +132,22 @@ def live_controls(MODEL_INFO, mo, SCREEN_KEYS, model_dropdown):
         value="robust",
         label="Image scale",
     )
-    live_show_sigma_x = mo.ui.checkbox(value=True, label="sigma_x")
-    live_show_sigma_y = mo.ui.checkbox(value=True, label="sigma_y")
-    live_show_sigma_z = mo.ui.checkbox(value=True, label="sigma_z")
-    live_show_emit_x = mo.ui.checkbox(value=True, label="eps_n,x")
-    live_show_emit_y = mo.ui.checkbox(value=True, label="eps_n,y")
-    live_show_twiss_a_beta = mo.ui.checkbox(value=True, label="x.beta")
-    live_show_twiss_b_beta = mo.ui.checkbox(value=True, label="y.beta")
+
+    SIGMA_X_LABEL = r"$\sigma_x$"
+    SIGMA_Y_LABEL = r"$\sigma_y$"
+    SIGMA_Z_LABEL = r"$\sigma_z$"
+    EMIT_X_LABEL = r"$\epsilon_{n,x}$"
+    EMIT_Y_LABEL = r"$\epsilon_{n,y}$"
+    BETA_X_LABEL = r"$\beta_x$"
+    BETA_Y_LABEL = r"$\beta_y$"
+
+    live_show_sigma_x = mo.ui.checkbox(value=True, label=SIGMA_X_LABEL)
+    live_show_sigma_y = mo.ui.checkbox(value=True, label=SIGMA_Y_LABEL)
+    live_show_sigma_z = mo.ui.checkbox(value=True, label=SIGMA_Z_LABEL)
+    live_show_emit_x = mo.ui.checkbox(value=True, label=EMIT_X_LABEL)
+    live_show_emit_y = mo.ui.checkbox(value=True, label=EMIT_Y_LABEL)
+    live_show_twiss_a_beta = mo.ui.checkbox(value=True, label=BETA_X_LABEL)
+    live_show_twiss_b_beta = mo.ui.checkbox(value=True, label=BETA_Y_LABEL)
     _rows = []
     for _k, _v in MODEL_INFO.items():
         _rows.append("<b>" + _k + "</b>: " + _v["description"])
@@ -160,12 +169,10 @@ def live_controls(MODEL_INFO, mo, SCREEN_KEYS, model_dropdown):
                 align="center",
             ),
             mo.hstack(
-                [live_screen_dropdown, live_poll_period_slider, live_image_scale_mode],
-                gap="1.0rem",
-                justify="start",
-            ),
-            mo.hstack(
                 [
+                    live_screen_dropdown,
+                    live_poll_period_slider, 
+                    live_image_scale_mode,
                     mo.md("**Show:**"),
                     live_show_sigma_x,
                     live_show_sigma_y,
@@ -178,6 +185,20 @@ def live_controls(MODEL_INFO, mo, SCREEN_KEYS, model_dropdown):
                 gap="1.0",
                 justify="start",
             ),
+            # mo.hstack(
+            #     [
+            #         mo.md("**Show:**"),
+            #         live_show_sigma_x,
+            #         live_show_sigma_y,
+            #         live_show_sigma_z,
+            #         live_show_emit_x,
+            #         live_show_emit_y,
+            #         live_show_twiss_a_beta,
+            #         live_show_twiss_b_beta,
+            #     ],
+            #     gap="1.0",
+            #     justify="start",
+            # ),
         ],
         gap="0.8rem",
     )
@@ -206,13 +227,14 @@ def interactive_controls(MODEL_INFO, mo, SCREEN_KEYS, model_dropdown, apply_mach
         value="robust",
         label="Image scale",
     )
-    interactive_show_sigma_x = mo.ui.checkbox(value=True, label="sigma_x")
-    interactive_show_sigma_y = mo.ui.checkbox(value=True, label="sigma_y")
-    interactive_show_sigma_z = mo.ui.checkbox(value=True, label="sigma_z")
-    interactive_show_emit_x = mo.ui.checkbox(value=True, label="eps_n,x")
-    interactive_show_emit_y = mo.ui.checkbox(value=True, label="eps_n,y")
-    interactive_show_twiss_a_beta = mo.ui.checkbox(value=True, label="x.beta")
-    interactive_show_twiss_b_beta = mo.ui.checkbox(value=True, label="y.beta")
+
+    interactive_show_sigma_x = mo.ui.checkbox(value=True, label=SIGMA_X_LABEL)
+    interactive_show_sigma_y = mo.ui.checkbox(value=True, label=SIGMA_Y_LABEL)
+    interactive_show_sigma_z = mo.ui.checkbox(value=True, label=SIGMA_Z_LABEL)
+    interactive_show_emit_x = mo.ui.checkbox(value=True, label=EMIT_X_LABEL)
+    interactive_show_emit_y = mo.ui.checkbox(value=True, label=EMIT_Y_LABEL)
+    interactive_show_twiss_a_beta = mo.ui.checkbox(value=True, label=BETA_X_LABEL)
+    interactive_show_twiss_b_beta = mo.ui.checkbox(value=True, label=BETA_Y_LABEL)
     _rows = []
     for _k, _v in MODEL_INFO.items():
         _rows.append("<b>" + _k + "</b>: " + _v["description"])
@@ -234,10 +256,6 @@ def interactive_controls(MODEL_INFO, mo, SCREEN_KEYS, model_dropdown, apply_mach
                 align="center",
             ),
             mo.hstack(
-                [scan_quad_btn],
-                justify="start",
-            ),
-            mo.hstack(
                 [
                     interactive_screen_dropdown,
                     interactive_image_scale_mode,
@@ -250,12 +268,13 @@ def interactive_controls(MODEL_INFO, mo, SCREEN_KEYS, model_dropdown, apply_mach
                     interactive_show_twiss_a_beta,
                     interactive_show_twiss_b_beta,
                     apply_machine_btn,
+                    scan_quad_btn
                 ],
                 gap="1.0",
                 justify="start",
             ),
         ],
-        gap="0.8rem",
+        gap="1.0rem",
     )
     return (
         interactive_controls_ui,
@@ -278,6 +297,7 @@ def interactive_slider_controls(
     initial_inputs,
     mo,
     set_interactive_eval_trigger,
+    set_slider_display_values,
     slider_display_values,
     source
 ):
@@ -302,6 +322,22 @@ def interactive_slider_controls(
     # Resolve display overrides once (set by the "apply machine values" button).
     _display_vals = slider_display_values()
 
+    def _clamp_slider_value(raw_value: float, start: float, stop: float, step: float) -> float:
+        if stop <= start:
+            return raw_value
+        epsilon = min(step / 2.0, max((stop - start) / 1_000_000.0, 1e-6))
+        lower = start + epsilon
+        upper = stop - epsilon
+        if lower >= upper:
+            return (start + stop) / 2.0
+        return min(max(raw_value, lower), upper)
+
+    def _on_slider_change(pv_name: str, value: float) -> None:
+        set_slider_display_values(
+            lambda current, pv=pv_name, slider_value=float(value): {**current, pv: slider_value}
+        )
+        set_interactive_eval_trigger(lambda x: x + 1)
+
     interactive_sliders = {}
     slider_rows = []
     current_row = []
@@ -315,15 +351,16 @@ def interactive_slider_controls(
         else:
             _start, _stop = float(spec.minimum), float(spec.maximum)
             _step = max(round(_range / 1000, 3), 0.001)
+        _default_value = float(_display_vals.get(pv_name, initial_inputs[pv_name]))
         slider = mo.ui.slider(
             start=_start,
             stop=_stop,
             step=_step,
-            value=round(float(_display_vals.get(pv_name, initial_inputs[pv_name])), 3),
+            value=_clamp_slider_value(round(_default_value, 3), _start, _stop, _step),
             label=slider_labels.get(pv_name, pv_name),
             full_width=False,
             show_value=True,
-            on_change=lambda v: set_interactive_eval_trigger(lambda x: x + 1),
+            on_change=lambda v, pv=pv_name: _on_slider_change(pv, v),
         )
         interactive_sliders[pv_name] = slider
         current_row.append(slider)
@@ -565,6 +602,7 @@ def interactive_eval(
     interactive_screen_dropdown,
     interactive_sliders,
     set_interactive_status,
+    slider_display_values,
     source,
 ):
     """Reactively evaluate the model whenever slider values change.
@@ -590,8 +628,9 @@ def interactive_eval(
             clear_history=True,
         )
 
+    current_values = slider_display_values()
     manual_values = {
-        name: float(interactive_sliders[name].value)
+        name: float(current_values.get(name, interactive_sliders[name].value))
         for name in MANUAL_INPUT_PVS if name in source._writable_variable_names
     }
     frame = source.snapshot(
@@ -632,25 +671,25 @@ async def quad_scan_task(
     _slider = interactive_sliders[quad_pv]
     q_min = float(_slider.start)
     q_max = float(_slider.stop)
-    n_steps = 10
+    n_steps = 20
     scan_token = scan_run_token() + 1
     set_scan_run_token(scan_token)
 
-    async def _run_scan(token):
-        step_values = [round(q_min + (q_max - q_min) * i / (n_steps - 1), 4) for i in range(n_steps)]
+    async def _run_scan(token, quad_name, scan_min, scan_max, num_steps):
+        step_values = [round(scan_min + (scan_max - scan_min) * i / (num_steps - 1), 4) for i in range(num_steps)]
         for step_idx, val in enumerate(step_values):
             if scan_run_token() != token:
                 return
             set_interactive_status(
-                "Scanning " + quad_pv + ": step " + str(step_idx + 1) + "/" + str(n_steps) + ",  value = " + str(val)
+                "Scanning " + quad_name + ": step " + str(step_idx + 1) + "/" + str(num_steps) + ",  value = " + str(val)
             )
-            set_slider_display_values(lambda d, v=val, pv=quad_pv: {**d, pv: v})
+            set_slider_display_values(lambda d, v=val, pv=quad_name: {**d, pv: v})
             set_interactive_eval_trigger(lambda x: x + 1)
             await asyncio.sleep(1.0)
         if scan_run_token() == token:
-            set_interactive_status("Scan of " + quad_pv + " complete (" + str(n_steps) + " steps).")
+            set_interactive_status("Scan of " + quad_name + " complete (" + str(num_steps) + " steps).")
 
-    asyncio.create_task(_run_scan(scan_token))
+    asyncio.create_task(_run_scan(scan_token, quad_pv, q_min, q_max, n_steps))
 
 
 @app.cell
