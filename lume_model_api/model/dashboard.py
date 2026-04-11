@@ -23,6 +23,9 @@ EMIT_X_LABEL = r"$\epsilon_{n,x}\ (\mu\mathrm{m}\cdot\mathrm{rad})$"
 EMIT_Y_LABEL = r"$\epsilon_{n,y}\ (\mu\mathrm{m}\cdot\mathrm{rad})$"
 EMIT_LABEL = r"$\epsilon_n\ (\mu\mathrm{m}\cdot\mathrm{rad})$"
 UM_LABEL = r"$\mu\mathrm{m}$"
+BETA_LABEL = r"$\beta$"
+BETA_X_LABEL = r"$\beta_x$"
+BETA_Y_LABEL = r"$\beta_y$"
 
 
 @dataclass(frozen=True)
@@ -208,13 +211,13 @@ class BeamDashboard:
         self.ax_twiss = self.fig.add_subplot(gs[1, 1])
         self._style_ax(self.ax_twiss)
         self.line_twiss_a = self.ax_twiss.plot(
-            [], [], color=self.CYAN, lw=2.0, label="x.beta"
+            [], [], color=self.CYAN, lw=2.0, label=BETA_X_LABEL
         )[0]
         self.line_twiss_b = self.ax_twiss.plot(
-            [], [], color=self.GOLD, lw=2.0, label="y.beta"
+            [], [], color=self.GOLD, lw=2.0, label=BETA_Y_LABEL
         )[0]
         self.ax_twiss.set_xlabel("s  (m)", fontsize=8)
-        self.ax_twiss.set_ylabel("beta  (m)", fontsize=8)
+        self.ax_twiss.set_ylabel(BETA_LABEL + "  (m)", fontsize=8)
         self.twiss_placeholder = self.ax_twiss.text(
             0.5,
             0.5,
@@ -545,8 +548,8 @@ class BeamDashboard:
         handles = []
         labels = []
         for line, label in [
-            (self.line_twiss_a, "x.beta"),
-            (self.line_twiss_b, "y.beta"),
+            (self.line_twiss_a, BETA_X_LABEL),
+            (self.line_twiss_b, BETA_Y_LABEL),
         ]:
             if line.get_visible():
                 handles.append(line)
