@@ -54,6 +54,11 @@ class BeamDashboard:
     IMAGE_PERCENTILE_LOW = 2.0
     IMAGE_PERCENTILE_HIGH = 99.7
     IMAGE_SCALE_WARMUP_FRAMES = 4
+    IMAGE_VIEW_WARMUP_FRAMES = 4
+    IMAGE_VIEW_MIN_MARGIN_PIXELS = 8
+    IMAGE_VIEW_MIN_SIZE_PIXELS = 96
+    IMAGE_VIEW_MARGIN_FRACTION = 0.35
+    IMAGE_VIEW_THRESHOLD_FRACTION = 0.08
     # Rolling time-window width for the scalar timeseries plot (seconds).
     TIMESERIES_WINDOW_SECONDS = 120.0
     # Rolling window for index/numeric x-axis mode (number of most recent points).
@@ -72,6 +77,10 @@ class BeamDashboard:
             "sample_count": 0,
             "frozen_vmin": None,
             "frozen_vmax": None,
+        }
+        self.image_view_state = {
+            "sample_count": 0,
+            "frozen_bounds": None,
         }
         self.history_data = {
             "x": [],
@@ -133,8 +142,8 @@ class BeamDashboard:
             transform=self.ax_img.transAxes,
             fontsize=11,
         )
-        self.ax_img.set_xlabel("x  (pixel)", fontsize=8)
-        self.ax_img.set_ylabel("y  (pixel)", fontsize=8)
+        self.ax_img.set_xlabel("", fontsize=8)
+        self.ax_img.set_ylabel("", fontsize=8)
         self.ax_img.tick_params(labelsize=7)
 
         self.ax_ps = self.fig.add_subplot(gs[0, 1])
@@ -280,12 +289,21 @@ class BeamDashboard:
         self.image_placeholder.set_text(image_placeholder)
         self.ax_img.set_title(f"{screen_label} Beam Image", color=self.TXT, fontsize=9, pad=6)
         self.ax_img.set_xlabel("", fontsize=8)
+        self.ax_img.set_ylabel("", fontsize=8)
+        self.ax_img.set_xlim(-0.5, 1.5)
+        self.ax_img.set_ylim(1.5, -0.5)
 
         self.scatter_artist.set_offsets(np.empty((0, 2)))
         self.scatter_placeholder.set_visible(True)
         self.scatter_placeholder.set_text("Waiting for first shot...")
         self.ax_ps.set_title(
             f"Beam Phase-Space  x - px at {screen_label}",
+            color=self.TXT,
+            fontsize=9,
+            pad=6,
+        )
+        self.ax_twiss.set_title(
+            f"Twiss Parameters along Accelerator",
             color=self.TXT,
             fontsize=9,
             pad=6,
@@ -322,6 +340,7 @@ class BeamDashboard:
         self.ax_twiss.set_ylim(-1.0, 1.0)
 
         self._reset_image_scale_state()
+        self._reset_image_view_state()
         self._set_image_norm(0.0, 1.0, "robust")
         self.set_visibility(self.visibility)
 
@@ -330,7 +349,12 @@ class BeamDashboard:
             self.image_placeholder.set_visible(False)
             self.image_artist.set_visible(True)
             display_image = np.asarray(frame.image, dtype=float)
+            image_height, image_width = display_image.shape[:2]
             self.image_artist.set_data(display_image)
+            self.image_artist.set_extent(
+                (-0.5, image_width - 0.5, image_height - 0.5, -0.5)
+            )
+            self._update_image_view(display_image)
             self._update_image_scale(display_image, image_scale_mode)
         else:
             self.image_artist.set_visible(False)
@@ -464,6 +488,10 @@ class BeamDashboard:
         self.image_scale_state["frozen_vmin"] = None
         self.image_scale_state["frozen_vmax"] = None
 
+    def _reset_image_view_state(self) -> None:
+        self.image_view_state["sample_count"] = 0
+        self.image_view_state["frozen_bounds"] = None
+
     def _compute_image_bounds(self, display_image: np.ndarray) -> tuple[float, float]:
         finite = display_image[np.isfinite(display_image)]
         if finite.size == 0:
@@ -482,6 +510,138 @@ class BeamDashboard:
         if high <= low:
             high = low + max(max(abs(low), abs(high)) * 0.1, 1e-18)
         return (low, max(high, low + 1e-18))
+
+    def _detect_image_view_bounds(
+        self, display_image: np.ndarray
+    ) -> tuple[int, int, int, int]:
+        height, width = display_image.shape[:2]
+        if height == 0 or width == 0:
+            return (0, 1, 0, 1)
+
+        finite = display_image[np.isfinite(display_image)]
+        if finite.size == 0:
+            return (0, height - 1, 0, width - 1)
+
+        positive = finite[finite > 0.0]
+        if positive.size == 0:
+            return (0, height - 1, 0, width - 1)
+
+        peak = float(np.max(positive))
+        threshold = max(
+            peak * self.IMAGE_VIEW_THRESHOLD_FRACTION,
+            float(np.percentile(positive, 99.5)) * 0.05,
+        )
+        mask = np.isfinite(display_image) & (display_image >= threshold)
+        if not np.any(mask):
+            mask = np.isfinite(display_image) & (display_image > 0.0)
+        if not np.any(mask):
+            return (0, height - 1, 0, width - 1)
+
+        rows, cols = np.where(mask)
+        row_min = int(rows.min())
+        row_max = int(rows.max())
+        col_min = int(cols.min())
+        col_max = int(cols.max())
+
+        row_margin = max(
+            int(np.ceil((row_max - row_min + 1) * self.IMAGE_VIEW_MARGIN_FRACTION)),
+            self.IMAGE_VIEW_MIN_MARGIN_PIXELS,
+        )
+        col_margin = max(
+            int(np.ceil((col_max - col_min + 1) * self.IMAGE_VIEW_MARGIN_FRACTION)),
+            self.IMAGE_VIEW_MIN_MARGIN_PIXELS,
+        )
+
+        row_min = max(0, row_min - row_margin)
+        row_max = min(height - 1, row_max + row_margin)
+        col_min = max(0, col_min - col_margin)
+        col_max = min(width - 1, col_max + col_margin)
+
+        row_min, row_max = self._enforce_min_window(
+            row_min,
+            row_max,
+            height,
+            self.IMAGE_VIEW_MIN_SIZE_PIXELS,
+        )
+        col_min, col_max = self._enforce_min_window(
+            col_min,
+            col_max,
+            width,
+            self.IMAGE_VIEW_MIN_SIZE_PIXELS,
+        )
+
+        return (row_min, row_max, col_min, col_max)
+
+    def _update_image_view(self, display_image: np.ndarray) -> None:
+        height, width = display_image.shape[:2]
+        detected = self._detect_image_view_bounds(display_image)
+        frozen = self.image_view_state["frozen_bounds"]
+
+        if frozen is None:
+            frozen = detected
+        elif self.image_view_state["sample_count"] < self.IMAGE_VIEW_WARMUP_FRAMES:
+            frozen = (
+                min(frozen[0], detected[0]),
+                max(frozen[1], detected[1]),
+                min(frozen[2], detected[2]),
+                max(frozen[3], detected[3]),
+            )
+        else:
+            # After warmup keep the view stable, only expanding if the beam
+            # drifts beyond the learned window.
+            frozen = (
+                min(frozen[0], detected[0]),
+                max(frozen[1], detected[1]),
+                min(frozen[2], detected[2]),
+                max(frozen[3], detected[3]),
+            ) if (
+                detected[0] < frozen[0]
+                or detected[1] > frozen[1]
+                or detected[2] < frozen[2]
+                or detected[3] > frozen[3]
+            ) else frozen
+
+        frozen = (
+            *self._enforce_min_window(frozen[0], frozen[1], height, self.IMAGE_VIEW_MIN_SIZE_PIXELS),
+            *self._enforce_min_window(frozen[2], frozen[3], width, self.IMAGE_VIEW_MIN_SIZE_PIXELS),
+        )
+        self.image_view_state["frozen_bounds"] = frozen
+        if self.image_view_state["sample_count"] < self.IMAGE_VIEW_WARMUP_FRAMES:
+            self.image_view_state["sample_count"] += 1
+
+        row_min, row_max, col_min, col_max = frozen
+
+        self.ax_img.set_xlim(col_min - 0.5, col_max + 0.5)
+        self.ax_img.set_ylim(row_max + 0.5, row_min - 0.5)
+
+    def _enforce_min_window(
+        self,
+        lower: int,
+        upper: int,
+        limit: int,
+        min_size: int,
+    ) -> tuple[int, int]:
+        if limit <= 0:
+            return (0, 1)
+        lower = max(0, lower)
+        upper = min(limit - 1, upper)
+        span = upper - lower + 1
+        target = min(limit, max(min_size, span))
+        if span >= target:
+            return (lower, upper)
+
+        center = 0.5 * (lower + upper)
+        half = 0.5 * (target - 1)
+        new_lower = int(np.floor(center - half))
+        new_upper = new_lower + target - 1
+        if new_lower < 0:
+            new_upper -= new_lower
+            new_lower = 0
+        if new_upper >= limit:
+            shift = new_upper - (limit - 1)
+            new_lower = max(0, new_lower - shift)
+            new_upper = limit - 1
+        return (new_lower, new_upper)
 
     def _set_image_norm(self, vmin: float, vmax: float, mode: str) -> None:
         if mode == "robust":
