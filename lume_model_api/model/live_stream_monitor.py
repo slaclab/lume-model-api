@@ -85,7 +85,41 @@ def model_selector(MODELS, mo):
 
 @app.cell
 def header(mo):
-    mo.md("# LUME Live Stream Monitor")
+    import base64
+    from pathlib import Path as _Path
+
+    def _image_data_url(filename: str) -> str:
+        current_file = _Path(__file__).resolve()
+        candidate_paths = [current_file.parent / "assets" / filename]
+        candidate_paths.extend(
+            parent / "lume_visualizations" / "assets" / filename
+            for parent in current_file.parents
+        )
+        asset_path = next((path for path in candidate_paths if path.exists()), None)
+        if asset_path is None:
+            raise FileNotFoundError(f"Could not locate logo asset: {filename}")
+        encoded = base64.b64encode(asset_path.read_bytes()).decode("ascii")
+        suffix = asset_path.suffix.lower()
+        mime_type = "image/jpeg" if suffix in {".jpg", ".jpeg"} else "image/png"
+        return f"data:{mime_type};base64,{encoded}"
+
+    slac_logo_url = _image_data_url("SLAC_short_red.png")
+    amsc_logo_url = _image_data_url("Genesis x AmSC lockup_Horizontal_Black.png")
+    dashboard_header_width = "88rem"
+    header_ui = mo.Html(
+        f'''
+        <div style="width:100%; box-sizing:border-box; margin-bottom:-7.25rem;">
+            <div style="display:flex; align-items:center; justify-content:space-between; width:min(100%, {dashboard_header_width}); box-sizing:border-box;">
+                <h1 style="margin:0; font-size:2.25rem; line-height:1.1; font-weight:700;">LUME Live Stream Monitor</h1>
+                <div style="display:flex; align-items:center; gap:0.75rem; flex-shrink:0;">
+                    <img src="{slac_logo_url}" alt="SLAC logo" style="height:24px; width:auto; object-fit:contain; transform:translateY(5px);" />
+                    <img src="{amsc_logo_url}" alt="AMSC logo" style="height:286px; width:auto; object-fit:contain; transform:translateY(9px);" />
+                </div>
+            </div>
+        </div>
+        '''
+    )
+    return (header_ui,)
 
 
 @app.cell
@@ -488,6 +522,7 @@ def interactive_visibility_sync(
 @app.cell
 def layout(
     active_tab,
+    header_ui,
     interactive_controls_ui,
     interactive_dashboard_widget,
     interactive_slider_controls_ui,
@@ -509,7 +544,6 @@ def layout(
             interactive_controls_ui,
             interactive_dashboard_widget,
             interactive_slider_controls_ui,
-            interactive_status,
         ],
         gap="0.8",
     )
@@ -521,8 +555,9 @@ def layout(
         value=active_tab(),
         on_change=set_active_tab,
     )
-    tabs
-    return (tabs,)
+    page = mo.vstack([header_ui, tabs], gap="0.1")
+    page
+    return page, tabs
 
 
 @app.cell
