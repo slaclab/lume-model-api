@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - bmad
+      - amsc-demo
     tags:
       - "v*"
   workflow_dispatch:
