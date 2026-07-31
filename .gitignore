@@ -5,6 +5,13 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+# Node / frontend build
+node_modules/
+**/node_modules/
+
+# macOS
+.DS_Store
+
 # C extensions
 *.so
 

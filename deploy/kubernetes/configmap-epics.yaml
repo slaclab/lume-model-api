@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  # Read-only EPICS Channel Access config for the live-view driver.
+  # Replace EPICS_CA_ADDR_LIST with the real LCLS CA gateway IP for your site.
+  name: lume-epics-config
+  namespace: lume-visualizations
+data:
+  EPICS_CA_AUTO_ADDR_LIST: "NO"
+  EPICS_CA_ADDR_LIST: "134.79.151.21:5065"

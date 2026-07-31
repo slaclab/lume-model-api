@@ -46,9 +46,5 @@ def quad_scan_main() -> int:
     return _run_marimo_app("quad_scan_monitor.py", default_port=2718)
 
 
-def live_stream_main() -> int:
-    return _run_marimo_app("live_stream_monitor.py", default_port=2719)
-
-
 if __name__ == "__main__":
     raise SystemExit(quad_scan_main())

@@ -22,8 +22,6 @@ dependencies = [
 [project.scripts]
 lume-fake-epics-ioc = "lume_visualizations.fake_epics_ioc:main"
 lume-quad-scan = "lume_visualizations.cli:quad_scan_main"
-lume-live-monitor = "lume_visualizations.cli:live_stream_main"
-lume-live-monitor-pool = "lume_visualizations.live_monitor_pool:main"
 
 [tool.setuptools.packages.find]
 include = ["lume_visualizations"]

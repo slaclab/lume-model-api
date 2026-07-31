@@ -1,7 +1,14 @@
 # lume-visualizations
 
-This repository contains two marimo dashboards built on top of the SLAC
-`virtual_accelerator` staged model for the CU injector / HXR line.
+> **The live-stream monitor has migrated off marimo.** It now ships as a
+> React/Vite + FastAPI app under [`webapp/`](webapp/README.md) (one URL for all
+> users; no allocator/`wN` routing). The marimo live monitor, its allocator, and
+> the WS-relay pool have been removed. The **quad-scan** marimo app remains.
+> The sections below describing the marimo live monitor are historical and no
+> longer runnable.
+
+This repository contains the SLAC `virtual_accelerator` staged-model
+visualizations for the CU injector / HXR line.
 
 ## Apps
 

@@ -1,0 +1,57 @@
+# Single stateless Deployment — one URL for all users (no wN, no allocator, no
+# WS-relay). M1 runs replicas: 1; M2/M3 raise replicas + add a pool/KEDA.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lume-monitor
+  namespace: lume-visualizations
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: lume-monitor
+  template:
+    metadata:
+      labels:
+        app: lume-monitor
+    spec:
+      containers:
+        - name: lume-monitor
+          image: ghcr.io/slaclab/lume-monitor:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8000
+              name: http
+          env:
+            - name: LCLS_LATTICE
+              value: /opt/lcls-lattice
+            - name: KMP_DUPLICATE_LIB_OK
+              value: "TRUE"
+          envFrom:
+            # Read-only EPICS Channel Access config for the live view.
+            - configMapRef:
+                name: lume-epics-config
+          resources:
+            requests:
+              cpu: "1"
+              memory: 2Gi
+            limits:
+              cpu: "2"
+              memory: 4Gi
+          # Model init (~25-30s): allow generous startup before readiness.
+          startupProbe:
+            httpGet:
+              path: /api/config
+              port: 8000
+            periodSeconds: 5
+            failureThreshold: 48
+          readinessProbe:
+            httpGet:
+              path: /api/config
+              port: 8000
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/config
+              port: 8000
+            periodSeconds: 30
