@@ -1,24 +1,28 @@
-# Eval pool (N1). Stateless: serves the SPA + /api/config + /api/evaluate.
-# EPICS-free (LUME_ROLE=eval, no EPICS configmap) so it can scale to replicas > 1
-# without duplicating the live view. N3 raises replicas + adds KEDA; kept at 1 for now.
+# Live producer (N1). The ONE EPICS reader: runs the broadcast hub (one loop per
+# active screen -> SSE fan-out) and serves /api/live/stream + /api/machine-snapshot.
+#
+# replicas MUST stay 1. This is a singleton on purpose: if it ran on N replicas each
+# would independently read EPICS and evaluate, costing N x the model work and showing
+# viewers divergent frames. One producer, fan out to all browsers via SSE.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: lume-monitor-eval
+  name: lume-monitor-live
   namespace: lume-visualizations
 spec:
   replicas: 1
+  strategy:
+    type: Recreate  # singleton: don't run two EPICS readers during a rollout
   selector:
     matchLabels:
-      app: lume-monitor-eval
+      app: lume-monitor-live
   template:
     metadata:
       labels:
-        app: lume-monitor-eval
+        app: lume-monitor-live
     spec:
       containers:
         - name: lume-monitor
-          # Tag is pinned via kustomization.yaml `images:` (immutable per test).
           image: ghcr.io/slaclab/lume-monitor
           imagePullPolicy: IfNotPresent
           ports:
@@ -26,20 +30,23 @@ spec:
               name: http
           env:
             - name: LUME_ROLE
-              value: "eval"
+              value: "live"
             - name: LCLS_LATTICE
               value: /opt/lcls-lattice
             - name: KMP_DUPLICATE_LIB_OK
               value: "TRUE"
-            # In-pod subprocess pool: K model instances (each ~2 GB) run K evaluates
-            # in parallel. Size memory/cpu for K.
+            # Small pool: the hub evaluates once per screen per tick regardless of
+            # viewer count, so a couple of workers cover several concurrent screens.
             - name: LUME_POOL_WORKERS
               value: "2"
             - name: LUME_MAX_INFLIGHT
               value: "8"
             - name: LUME_WORKER_THREADS
               value: "2"
-          # No EPICS configmap: the eval pool never touches Channel Access.
+          envFrom:
+            # Read-only EPICS Channel Access config for the live view.
+            - configMapRef:
+                name: lume-epics-config
           resources:
             requests:
               cpu: "2"
@@ -47,7 +54,6 @@ spec:
             limits:
               cpu: "4"
               memory: 7Gi
-          # Model init (~25-30s): allow generous startup before readiness.
           startupProbe:
             httpGet:
               path: /api/config

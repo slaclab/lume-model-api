@@ -1,4 +1,11 @@
-# One host/path for everyone → one Service. No per-worker wN paths.
+# One host, two backends. The EPICS-touching endpoints (SSE live stream +
+# machine-snapshot) go to the singleton live producer; everything else (SPA,
+# /api/config, /api/evaluate) goes to the autoscalable eval pool.
+#
+# Both paths share the rewrite-target /$2, so each regex must capture the remainder
+# (after /live-monitor/) in group 2. nginx orders regex locations by descending path
+# length, so the longer live path is matched before the catch-all.
+#
 # SSE needs a long read timeout and no response buffering.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -6,9 +13,6 @@ metadata:
   name: lume-monitor
   namespace: lume-visualizations
   annotations:
-    # Strip the /live-monitor prefix so the backend (served at "/") matches.
-    # base:'./' + API_BASE='.' keeps the SPA + /api calls relative under the subpath.
-    # Load the app at the trailing-slash URL: .../live-monitor/
     nginx.ingress.kubernetes.io/rewrite-target: /$2
     nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
     nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
@@ -22,10 +26,19 @@ spec:
     - host: ard-modeling-service.slac.stanford.edu
       http:
         paths:
+          # EPICS-touching endpoints -> live producer (singleton).
+          - path: /live-monitor(/)(api/live/.*|api/machine-snapshot)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: lume-monitor-live
+                port:
+                  number: 80
+          # Everything else (SPA, config, evaluate) -> eval pool.
           - path: /live-monitor(/|$)(.*)
             pathType: ImplementationSpecific
             backend:
               service:
-                name: lume-monitor
+                name: lume-monitor-eval
                 port:
                   number: 80

@@ -5,6 +5,7 @@ resources:
   - namespace.yaml
   - configmap-epics.yaml
   - deployment.yaml
+  - deployment-live.yaml
   - service.yaml
   - ingress.yaml
   - ingress-redirect.yaml

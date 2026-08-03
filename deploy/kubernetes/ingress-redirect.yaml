@@ -23,6 +23,6 @@ spec:
             pathType: Exact
             backend:
               service:
-                name: lume-monitor
+                name: lume-monitor-eval
                 port:
                   number: 80

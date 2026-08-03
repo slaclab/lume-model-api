@@ -1,9 +1,15 @@
 """FastAPI backend for the LUME live-stream monitor.
 
 Stateless HTTP `evaluate` + a read-only SSE live view. Evaluates run on a pool of
-K subprocess model instances (M2) — K in parallel, no lock — with baseline-merge in
-the source making every request history-independent. Backpressure returns 503 when
-the pool is saturated. The main process holds no model and only reads EPICS (read-only).
+K subprocess model instances — K in parallel, no lock — with baseline-merge in the
+source making every request history-independent. Backpressure returns 503 when the
+pool is saturated.
+
+One image, `LUME_ROLE`-selected (N1):
+  - `eval` — serves the SPA + `/api/config` + `/api/evaluate`; EPICS-free; scalable.
+  - `live` — the singleton EPICS reader: runs the broadcast hub and serves
+    `/api/live/stream` + `/api/machine-snapshot`.
+  - `all`  — both, in one process (default; dev / mock / single-pod).
 """
 
 from __future__ import annotations
@@ -16,11 +22,10 @@ os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
 import asyncio
 import json
 import math
-import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sse_starlette.sse import EventSourceResponse
@@ -35,6 +40,9 @@ from .source import build_config, is_mock
 MODEL_NAME = os.environ.get("LUME_MODEL", "cu_hxr_staged")
 POOL_WORKERS = int(os.environ.get("LUME_POOL_WORKERS", "4"))
 MAX_INFLIGHT = int(os.environ.get("LUME_MAX_INFLIGHT", str(POOL_WORKERS * 4)))
+# eval | live | all (default). `live`/`all` run the EPICS read loop + broadcast hub.
+ROLE = os.environ.get("LUME_ROLE", "all").lower()
+SERVE_LIVE = ROLE in {"all", "live"}
 _SPECS_BY_PV = {spec.pv_name: spec for spec in FAKE_INPUT_SPECS}
 
 
@@ -57,14 +65,21 @@ def _mock_live_inputs(elapsed: float) -> dict[str, float]:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.mock = is_mock()
-    app.state.provider = None  # lazy EPICS provider (real live view only)
+    app.state.provider = None  # lazy EPICS provider (live role only)
     app.state.pool = ModelPool(
         MODEL_NAME, mock=app.state.mock, workers=POOL_WORKERS, max_inflight=MAX_INFLIGHT
     )
     await app.state.pool.warmup()  # build all K models up front (parallel)
+    app.state.hub = None
+    if SERVE_LIVE:
+        from .live_hub import LiveHub
+
+        app.state.hub = LiveHub(app.state.pool, lambda elapsed: _read_live_inputs(app, elapsed))
     try:
         yield
     finally:
+        if app.state.hub is not None:
+            await app.state.hub.shutdown()
         app.state.pool.shutdown()
 
 
@@ -104,6 +119,8 @@ async def evaluate(req: EvaluateRequest):
 
 @app.get("/api/machine-snapshot", response_model=SnapshotResponse)
 async def machine_snapshot() -> SnapshotResponse:
+    if not SERVE_LIVE:
+        raise HTTPException(status_code=503, detail="machine-snapshot not served by this instance")
     if app.state.mock:
         inputs = {
             pv: float(_SPECS_BY_PV[pv].default)
@@ -122,26 +139,21 @@ async def machine_snapshot() -> SnapshotResponse:
 
 
 @app.get("/api/live/stream")
-async def live_stream(request: Request, screen: str = "OTR4", period: float = 1.0):
-    period = max(0.1, float(period))
+async def live_stream(screen: str = "OTR4"):
+    if app.state.hub is None:
+        raise HTTPException(status_code=503, detail="live view not served by this instance")
+    q = app.state.hub.subscribe(screen)
 
     async def event_generator():
-        started = time.monotonic()
-        index = 0
-        while True:
-            if await request.is_disconnected():
-                break
-            elapsed = time.monotonic() - started
-            try:
-                inputs = await _read_live_inputs(app, elapsed)
-                wire = await app.state.pool.evaluate(
-                    screen, inputs, frame_index=index, title_suffix="live"
-                )
-                yield {"event": "frame", "data": json.dumps(wire)}
-                index += 1
-            except Exception as exc:  # keep the stream alive on transient errors
-                yield {"event": "error", "data": json.dumps({"message": str(exc)})}
-            await asyncio.sleep(period)
+        # sse-starlette cancels this generator on client disconnect -> finally
+        # unsubscribes, and the screen loop stops once its last viewer leaves.
+        try:
+            while True:
+                item = await q.get()
+                event = "frame" if item["event"] == "frame" else "error"
+                yield {"event": event, "data": json.dumps(item["data"])}
+        finally:
+            app.state.hub.unsubscribe(screen, q)
 
     return EventSourceResponse(event_generator())
 

@@ -1,11 +1,26 @@
+# Two Services: the Ingress routes live/snapshot to the singleton, the rest to the
+# eval pool. Both forward 80 -> 8000.
 apiVersion: v1
 kind: Service
 metadata:
-  name: lume-monitor
+  name: lume-monitor-eval
   namespace: lume-visualizations
 spec:
   selector:
-    app: lume-monitor
+    app: lume-monitor-eval
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: lume-monitor-live
+  namespace: lume-visualizations
+spec:
+  selector:
+    app: lume-monitor-live
   ports:
     - name: http
       port: 80
