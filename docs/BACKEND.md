@@ -46,7 +46,7 @@ Model init takes ~25-30 s before `/api/config` returns 200.
 docker build -f webapp/Dockerfile -t ghcr.io/slaclab/lume-monitor:latest .   # context = repo root
 kubectl apply -k webapp/deploy/kubernetes                                      # single URL, no wN
 ```
-Load the app at the trailing-slash URL: `https://<host>/lume-monitor/`.
+Load the app at the trailing-slash URL: `https://<host>/live-monitor/`.
 
 > Deprecated by this app (retire once browser parity is confirmed):
 > `lume_visualizations/live_stream_monitor.py`, `live_monitor_pool.py`,

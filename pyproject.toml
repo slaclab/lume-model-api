@@ -5,23 +5,18 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "lume-visualizations"
 version = "0.1.0"
-description = "Marimo beam-monitor dashboards for the LCLS CU injector virtual accelerator"
+description = "Model/config/EPICS layer for the LCLS CU injector virtual accelerator (imported by the webapp live-stream monitor)"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "aiohttp>=3.10",
     "caproto>=1.3",
-    "marimo>=0.22,<1",
-    "matplotlib>=3.8",
     "numpy>=1.26",
     "pyepics>=3.5",
-    "uvicorn>=0.34,!=0.36.0",
 ]
- # virtual-accelerator needs to be installed in the container for now to access the subtrees
+ # virtual-accelerator (torch/Bmad model) is installed separately in the webapp env/image.
 
 [project.scripts]
 lume-fake-epics-ioc = "lume_visualizations.fake_epics_ioc:main"
-lume-quad-scan = "lume_visualizations.cli:quad_scan_main"
 
 [tool.setuptools.packages.find]
 include = ["lume_visualizations"]

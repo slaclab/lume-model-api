@@ -4,52 +4,14 @@ from __future__ import annotations
 
 import os
 import time
-from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
-from pathlib import Path
-import platform
 from typing import Mapping, Optional
 
 import numpy as np
 
-from lume_visualizations.config import (
-    EPICS_INPUT_PVS,
-    MODEL_INPUT_NAMES,
-    SCREEN_CONFIGS,
-    EXCLUDED_EPICS_PVS,
-    resolve_lcls_lattice_path,
-)
-
-
-@contextmanager
-def _tao_model_workdir(lattice_path: str):
-    previous_cwd = Path.cwd()
-    model_dir = Path(lattice_path) / "bmad" / "models" / "cu_hxr"
-    os.chdir(model_dir)
-    try:
-        yield
-    finally:
-        os.chdir(previous_cwd)
-
-def _create_cu_hxr_staged_model(start_element="OTR2", end_element="TD11"):
-    from virtual_accelerator.models.staged_model import get_cu_hxr_staged_model
-    return get_cu_hxr_staged_model(start_element=start_element, end_element=end_element, track_beam=True)
-
-
-def _create_cu_hxr_bmad_model(start_element="OTR2", end_element="TD11"):
-    from virtual_accelerator.models.cu_hxr import get_cu_hxr_bmad_model
-    return get_cu_hxr_bmad_model(start_element=start_element, end_element=end_element, track_beam=True)
-
-MODELS = {
-    "cu_hxr_staged": _create_cu_hxr_staged_model,
-    "cu_hxr_bmad": _create_cu_hxr_bmad_model,
-}
-
-MODEL_INFO = {
-    "cu_hxr_staged": {"description": "Staged LUMEModel chaining the LCLS Cu Injector ML model (predicting at OTR2) with a Bmad beamline simulation tracking from OTR2 to TD11."},
-    "cu_hxr_bmad": {"description": "LUMEModel of Bmad linac simulation tracking from OTR2 to TD11."},
-}
+from lume_visualizations.config import resolve_lcls_lattice_path
+from lume_visualizations.registry import ModelSpec, get_spec
 
 
 # ---------------------------------------------------------------------------
@@ -97,31 +59,29 @@ class ModelImageSource:
         model_name: str,
         max_scatter_points: int = 3000,
         reset_values: Optional[dict[str, object]] = None,
-        twiss_s_pv: str = "s",
-        twiss_a_beta_pv: str = "x.beta",
-        twiss_b_beta_pv: str = "y.beta",
     ):
         self.model_name = model_name
-        self.model = MODELS.get(model_name)()
+        self.spec: ModelSpec = get_spec(model_name)
+        # LCLS_LATTICE must be set before the model (Bmad) is built.
+        self.lattice_path = resolve_lcls_lattice_path()
+        os.environ["LCLS_LATTICE"] = self.lattice_path
+        self.model = self.spec.make_model()
         self.max_scatter_points = max_scatter_points
         self.reset_values = reset_values or {}
-        self.twiss_s_pv = twiss_s_pv
-        self.twiss_a_beta_pv = twiss_a_beta_pv
-        self.twiss_b_beta_pv = twiss_b_beta_pv
+        self.screens = self.spec.screens
+        self.baseline = dict(self.spec.baseline)
+        self.twiss_s_pv = self.spec.twiss_s_pv
+        self.twiss_a_beta_pv = self.spec.twiss_a_beta_pv
+        self.twiss_b_beta_pv = self.spec.twiss_b_beta_pv
         self._writable_variable_names = {
             name
             for name, variable in self.model.supported_variables.items()
             if not getattr(variable, "read_only", False)
-            and name not in EXCLUDED_EPICS_PVS
+            and name not in self.spec.excluded_pvs
         }
-        self.reset_values = reset_values or {}
-        self.lattice_path = resolve_lcls_lattice_path()
-        os.environ["LCLS_LATTICE"] = self.lattice_path
 
     @classmethod
     def create_default(cls):
-        lattice_path = resolve_lcls_lattice_path()
-        os.environ["LCLS_LATTICE"] = lattice_path
         return cls(model_name="cu_hxr_staged", reset_values={})
 
     def reset(self) -> None:
@@ -146,11 +106,14 @@ class ModelImageSource:
         image_caption: str = "",
         title_suffix: str = "",
     ) -> BeamFrame:
-        screen = SCREEN_CONFIGS[screen_key]
-        if control_updates:
-            writable_updates = self._filter_writable_updates(control_updates)
-            if writable_updates:
-                self.model.set(writable_updates)
+        screen = self.screens[screen_key]
+        # Baseline-merge: overlay the request on the known baseline so evaluate is
+        # history-independent on any (pooled) instance — a missing key falls back to
+        # the design default, never a previous request's value.
+        effective = {**self.baseline, **(control_updates or {})}
+        writable_updates = self._filter_writable_updates(effective)
+        if writable_updates:
+            self.model.set(writable_updates)
 
         pvs: list[str] = [
             screen.particle_source,
@@ -160,7 +123,7 @@ class ModelImageSource:
         ]
         if screen.image_pv:
             pvs.insert(0, screen.image_pv)
-        if screen.scalar_mode == "pvs" and self.model_name == "cu_hxr_staged":
+        if screen.scalar_mode == "pvs":
             pvs.extend(
                 [
                     screen.xrms_pv,
@@ -206,7 +169,7 @@ class ModelImageSource:
         )
 
     def _extract_scalars(self, screen, result: Mapping[str, object], beam) -> tuple[float, float, float, float, float]:
-        if screen.scalar_mode == "pvs" and self.model_name == "cu_hxr_staged":
+        if screen.scalar_mode == "pvs":
             return (
                 float(result[screen.xrms_pv]),
                 float(result[screen.yrms_pv]),

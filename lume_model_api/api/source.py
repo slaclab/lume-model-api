@@ -10,8 +10,8 @@ from __future__ import annotations
 
 import os
 
-from lume_visualizations.config import MANUAL_INPUT_PVS, SCREEN_CONFIGS
 from lume_visualizations.fake_epics_ioc import FAKE_INPUT_SPECS
+from lume_visualizations.registry import get_spec
 
 from .schemas import ConfigResponse, InputInfo, ScreenInfo, SCALAR_INFO
 
@@ -33,17 +33,18 @@ def get_source(model_name: str = "cu_hxr_staged", mock: bool | None = None):
 
 
 def build_config(source, model_name: str, mock: bool) -> ConfigResponse:
-    writable = getattr(source, "_writable_variable_names", set(MANUAL_INPUT_PVS))
-    specs_by_pv = {spec.pv_name: spec for spec in FAKE_INPUT_SPECS}
+    spec = get_spec(model_name)
+    writable = getattr(source, "_writable_variable_names", set(spec.input_pvs))
+    specs_by_pv = {s.pv_name: s for s in FAKE_INPUT_SPECS}
 
     inputs: list[InputInfo] = []
-    for pv in MANUAL_INPUT_PVS:
+    for pv in spec.input_pvs:
         if pv not in writable:
             continue
-        spec = specs_by_pv.get(pv)
-        if spec is None:
+        fake = specs_by_pv.get(pv)
+        if fake is None:
             continue
-        lo, hi, default = float(spec.minimum), float(spec.maximum), float(spec.default)
+        lo, hi, default = float(fake.minimum), float(fake.maximum), float(fake.default)
         if hi <= lo:  # zero-range PV (e.g. correctors); give a nominal span
             lo, hi = default - 0.1, default + 0.1
         inputs.append(
@@ -52,7 +53,7 @@ def build_config(source, model_name: str, mock: bool) -> ConfigResponse:
 
     screens = [
         ScreenInfo(key=s.key, label=s.label, has_image=s.image_pv is not None)
-        for s in SCREEN_CONFIGS.values()
+        for s in spec.screens.values()
     ]
 
     version = f"{model_name} (mock)" if mock else model_name

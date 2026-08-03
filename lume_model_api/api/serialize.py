@@ -34,3 +34,35 @@ def to_list(array) -> Optional[list[float]]:
     if array is None:
         return None
     return [float(v) for v in np.asarray(array, dtype=float).ravel()]
+
+
+def frame_to_wire(frame) -> dict:
+    """Serialize a BeamFrame to the FrameResponse wire dict (JSON/pickle-safe).
+
+    Done in the pool worker so large arrays are encoded once and cross the process
+    boundary as compact base64 strings rather than raw numpy.
+    """
+    image_b64, image_shape = encode_image(frame.image)
+    return {
+        "screen_key": frame.screen_key,
+        "screen_label": frame.screen_label,
+        "image_b64": image_b64,
+        "image_shape": image_shape,
+        "image_message": frame.image_message,
+        "image_caption": frame.image_caption,
+        "scalars": {
+            "xrms_um": float(frame.xrms_um),
+            "yrms_um": float(frame.yrms_um),
+            "sigma_z_um": float(frame.sigma_z_um),
+            "norm_emit_x_um_rad": float(frame.norm_emit_x_um_rad),
+            "norm_emit_y_um_rad": float(frame.norm_emit_y_um_rad),
+        },
+        "scatter_x_b64": None if frame.beam_x_um is None else encode_f32(frame.beam_x_um),
+        "scatter_px_b64": None if frame.beam_px_evc is None else encode_f32(frame.beam_px_evc),
+        "twiss_s": to_list(frame.twiss_s),
+        "twiss_a_beta": to_list(frame.twiss_a_beta),
+        "twiss_b_beta": to_list(frame.twiss_b_beta),
+        "frame_index": int(frame.frame_index),
+        "title_suffix": frame.title_suffix,
+        "timestamp": float(frame.timestamp),
+    }

@@ -9,6 +9,7 @@ are visibly reflected.
 
 from __future__ import annotations
 
+import os
 import time
 from datetime import datetime
 from typing import Mapping, Optional
@@ -16,30 +17,38 @@ from typing import Mapping, Optional
 import numpy as np
 
 from lume_visualizations.beam_monitor import BeamFrame
-from lume_visualizations.config import MANUAL_INPUT_PVS, SCREEN_CONFIGS
+from lume_visualizations.registry import get_spec
 
 _IMG_ROWS = 240
 _IMG_COLS = 320
 _N_SCATTER = 3000
+# Optional synthetic per-eval latency (seconds) to simulate model cost for load tests.
+_MOCK_DELAY = float(os.environ.get("LUME_MOCK_DELAY", "0"))
 
 
 class MockImageSource:
-    """Drop-in stand-in for ModelImageSource that fabricates plausible frames."""
+    """Drop-in stand-in for ModelImageSource that fabricates plausible frames.
+
+    Carries the model's baseline and applies baseline-merge just like the real
+    source, so `{}` inputs are deterministic and the mock exercises the same
+    stateless contract.
+    """
 
     def __init__(self, model_name: str = "cu_hxr_staged", **_ignored) -> None:
         self.model_name = model_name
-        self._writable_variable_names = set(MANUAL_INPUT_PVS)
+        self.spec = get_spec(model_name)
+        self.screens = self.spec.screens
+        self.baseline = dict(self.spec.baseline)
+        self._writable_variable_names = set(self.spec.input_pvs)
         self._rng = np.random.default_rng(2719)
 
     def reset(self) -> None:  # noqa: D401 - parity with ModelImageSource
         return None
 
-    def _knob(self, control_updates: Optional[Mapping[str, float]]) -> float:
+    def _knob(self, effective: Mapping[str, float]) -> float:
         """Map inputs to a bounded [0, 1] factor so sliders visibly change output."""
-        if not control_updates:
-            return 0.5
-        soln = float(control_updates.get("SOLN:IN20:121:BCTRL", 0.478))
-        quad = float(control_updates.get("QUAD:IN20:525:BCTRL", -3.2))
+        soln = float(effective.get("SOLN:IN20:121:BCTRL", 0.478))
+        quad = float(effective.get("QUAD:IN20:525:BCTRL", -3.2))
         # Normalize each into ~[0,1] over its slider span, then average.
         soln_n = (soln - 0.377) / (0.498 - 0.377)
         quad_n = (quad - (-7.56)) / ((-1.08) - (-7.56))
@@ -54,8 +63,11 @@ class MockImageSource:
         image_caption: str = "",
         title_suffix: str = "",
     ) -> BeamFrame:
-        screen = SCREEN_CONFIGS[screen_key]
-        knob = self._knob(control_updates)
+        if _MOCK_DELAY:
+            time.sleep(_MOCK_DELAY)
+        screen = self.screens[screen_key]
+        effective = {**self.baseline, **(control_updates or {})}
+        knob = self._knob(effective)
 
         # Beam widths (µm) driven by the knob so the UI reacts to sliders.
         sigma_x = 40.0 + 120.0 * knob

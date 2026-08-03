@@ -1,17 +1,17 @@
-"""FastAPI backend for the LUME live-stream monitor (M1, single-user).
+"""FastAPI backend for the LUME live-stream monitor.
 
-Replaces the marimo runtime: a stateless HTTP `evaluate` + a read-only SSE live
-view. One model instance guarded by one asyncio lock (M1 serializes; M2 adds a pool).
+Stateless HTTP `evaluate` + a read-only SSE live view. Evaluates run on a pool of
+K subprocess model instances (M2) — K in parallel, no lock — with baseline-merge in
+the source making every request history-independent. Backpressure returns 503 when
+the pool is saturated. The main process holds no model and only reads EPICS (read-only).
 """
 
 from __future__ import annotations
 
-# Thread pinning + OpenMP workaround must be set before torch / Bmad import.
 import os
 
+# Thread pinning for the main process (workers pin themselves in pool._init_worker).
 os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
-for _var in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS", "TORCH_NUM_THREADS"):
-    os.environ.setdefault(_var, "2")
 
 import asyncio
 import json
@@ -28,47 +28,14 @@ from sse_starlette.sse import EventSourceResponse
 from lume_visualizations.config import EPICS_INPUT_PVS, MANUAL_INPUT_PVS
 from lume_visualizations.fake_epics_ioc import FAKE_INPUT_SPECS
 
-from . import serialize
-from .schemas import (
-    ConfigResponse,
-    EvaluateRequest,
-    FrameResponse,
-    Scalars,
-    SnapshotResponse,
-)
-from .source import build_config, get_source, is_mock
+from .pool import ModelPool, PoolFull
+from .schemas import ConfigResponse, EvaluateRequest, FrameResponse, SnapshotResponse
+from .source import build_config, is_mock
 
 MODEL_NAME = os.environ.get("LUME_MODEL", "cu_hxr_staged")
+POOL_WORKERS = int(os.environ.get("LUME_POOL_WORKERS", "4"))
+MAX_INFLIGHT = int(os.environ.get("LUME_MAX_INFLIGHT", str(POOL_WORKERS * 4)))
 _SPECS_BY_PV = {spec.pv_name: spec for spec in FAKE_INPUT_SPECS}
-
-
-def _frame_to_response(frame) -> FrameResponse:
-    image_b64, image_shape = serialize.encode_image(frame.image)
-    scatter_x = None if frame.beam_x_um is None else serialize.encode_f32(frame.beam_x_um)
-    scatter_px = None if frame.beam_px_evc is None else serialize.encode_f32(frame.beam_px_evc)
-    return FrameResponse(
-        screen_key=frame.screen_key,
-        screen_label=frame.screen_label,
-        image_b64=image_b64,
-        image_shape=image_shape,
-        image_message=frame.image_message,
-        image_caption=frame.image_caption,
-        scalars=Scalars(
-            xrms_um=frame.xrms_um,
-            yrms_um=frame.yrms_um,
-            sigma_z_um=frame.sigma_z_um,
-            norm_emit_x_um_rad=frame.norm_emit_x_um_rad,
-            norm_emit_y_um_rad=frame.norm_emit_y_um_rad,
-        ),
-        scatter_x_b64=scatter_x,
-        scatter_px_b64=scatter_px,
-        twiss_s=serialize.to_list(frame.twiss_s),
-        twiss_a_beta=serialize.to_list(frame.twiss_a_beta),
-        twiss_b_beta=serialize.to_list(frame.twiss_b_beta),
-        frame_index=frame.frame_index,
-        title_suffix=frame.title_suffix,
-        timestamp=frame.timestamp,
-    )
 
 
 def _mock_live_inputs(elapsed: float) -> dict[str, float]:
@@ -90,10 +57,15 @@ def _mock_live_inputs(elapsed: float) -> dict[str, float]:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.mock = is_mock()
-    app.state.lock = asyncio.Lock()
-    app.state.source = get_source(MODEL_NAME, mock=app.state.mock)
     app.state.provider = None  # lazy EPICS provider (real live view only)
-    yield
+    app.state.pool = ModelPool(
+        MODEL_NAME, mock=app.state.mock, workers=POOL_WORKERS, max_inflight=MAX_INFLIGHT
+    )
+    await app.state.pool.warmup()  # build all K models up front (parallel)
+    try:
+        yield
+    finally:
+        app.state.pool.shutdown()
 
 
 app = FastAPI(title="LUME Live Stream Monitor", lifespan=lifespan)
@@ -105,28 +77,29 @@ app.add_middleware(
 )
 
 
-async def _snapshot(app: FastAPI, screen: str, inputs: dict[str, float], **kw):
-    async with app.state.lock:
-        return await asyncio.to_thread(
-            app.state.source.snapshot, screen, control_updates=inputs, **kw
-        )
+async def _read_live_inputs(app: FastAPI, elapsed: float) -> dict[str, float]:
+    if app.state.mock:
+        return _mock_live_inputs(elapsed)
+    if app.state.provider is None:
+        from lume_visualizations.epics_controls import EpicsInputProvider
+
+        app.state.provider = EpicsInputProvider()
+    return await asyncio.to_thread(app.state.provider.read_inputs, EPICS_INPUT_PVS)
 
 
 @app.get("/api/config", response_model=ConfigResponse)
 async def get_config() -> ConfigResponse:
-    return build_config(app.state.source, MODEL_NAME, app.state.mock)
+    return build_config(None, MODEL_NAME, app.state.mock)
 
 
 @app.post("/api/evaluate", response_model=FrameResponse)
-async def evaluate(req: EvaluateRequest) -> FrameResponse:
+async def evaluate(req: EvaluateRequest):
     try:
-        frame = await _snapshot(
-            app, req.screen, req.inputs, x_axis_value=float(time.time()),
-            title_suffix="manual",
-        )
+        return await app.state.pool.evaluate(req.screen, req.inputs, title_suffix="manual")
+    except PoolFull as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     except KeyError as exc:
         raise HTTPException(status_code=400, detail=f"Unknown screen: {exc}") from exc
-    return _frame_to_response(frame)
 
 
 @app.get("/api/machine-snapshot", response_model=SnapshotResponse)
@@ -160,21 +133,11 @@ async def live_stream(request: Request, screen: str = "OTR4", period: float = 1.
                 break
             elapsed = time.monotonic() - started
             try:
-                if app.state.mock:
-                    inputs = _mock_live_inputs(elapsed)
-                else:
-                    if app.state.provider is None:
-                        from lume_visualizations.epics_controls import EpicsInputProvider
-
-                        app.state.provider = EpicsInputProvider()
-                    inputs = await asyncio.to_thread(
-                        app.state.provider.read_inputs, EPICS_INPUT_PVS
-                    )
-                frame = await _snapshot(
-                    app, screen, inputs, frame_index=index, title_suffix="live"
+                inputs = await _read_live_inputs(app, elapsed)
+                wire = await app.state.pool.evaluate(
+                    screen, inputs, frame_index=index, title_suffix="live"
                 )
-                payload = _frame_to_response(frame).model_dump()
-                yield {"event": "frame", "data": json.dumps(payload)}
+                yield {"event": "frame", "data": json.dumps(wire)}
                 index += 1
             except Exception as exc:  # keep the stream alive on transient errors
                 yield {"event": "error", "data": json.dumps({"message": str(exc)})}

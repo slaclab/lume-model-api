@@ -1,0 +1,28 @@
+# 301 redirect for the bare path (no trailing slash) -> trailing-slash URL.
+# Needed because the SPA uses relative asset paths (base:'./'); without the slash
+# the browser resolves /assets and /api against "/" and they 404.
+#
+# MUST be a separate Ingress from the serving one: `permanent-redirect` applies to
+# every path in its Ingress, so pairing it with /live-monitor(/|$)(.*) would also
+# redirect /live-monitor/... and loop. Here it matches ONLY the exact bare path.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: lume-monitor-redirect
+  namespace: lume-visualizations
+  annotations:
+    nginx.ingress.kubernetes.io/permanent-redirect: /live-monitor/
+    nginx.ingress.kubernetes.io/whitelist-source-range: "71.198.255.25,134.79.0.0/16,172.16.0.0/12,208.45.173.162,216.46.165.69,172.27.8.0/24"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: ard-modeling-service.slac.stanford.edu
+      http:
+        paths:
+          - path: /live-monitor
+            pathType: Exact
+            backend:
+              service:
+                name: lume-monitor
+                port:
+                  number: 80

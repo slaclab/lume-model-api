@@ -25,10 +25,13 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONPATH=/app \
     LCLS_LATTICE=/opt/lcls-lattice \
     KMP_DUPLICATE_LIB_OK=TRUE \
+    HDF5_USE_FILE_LOCKING=FALSE \
     OMP_NUM_THREADS=2 \
     MKL_NUM_THREADS=2 \
     OPENBLAS_NUM_THREADS=2 \
-    TORCH_NUM_THREADS=2
+    TORCH_NUM_THREADS=2 \
+    LUME_POOL_WORKERS=2 \
+    LUME_WORKER_THREADS=2
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends bash bzip2 curl git patchelf \

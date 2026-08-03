@@ -17,8 +17,9 @@ spec:
     spec:
       containers:
         - name: lume-monitor
-          image: ghcr.io/slaclab/lume-monitor:latest
-          imagePullPolicy: Always
+          # Tag is pinned via kustomization.yaml `images:` (immutable per test).
+          image: ghcr.io/slaclab/lume-monitor
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8000
               name: http
@@ -27,17 +28,25 @@ spec:
               value: /opt/lcls-lattice
             - name: KMP_DUPLICATE_LIB_OK
               value: "TRUE"
+            # In-pod subprocess pool: K model instances (each ~2 GB) run K evaluates
+            # in parallel. Size memory/cpu for K. Multi-pod scale-out is M3.
+            - name: LUME_POOL_WORKERS
+              value: "2"
+            - name: LUME_MAX_INFLIGHT
+              value: "8"
+            - name: LUME_WORKER_THREADS
+              value: "2"
           envFrom:
             # Read-only EPICS Channel Access config for the live view.
             - configMapRef:
                 name: lume-epics-config
           resources:
             requests:
-              cpu: "1"
-              memory: 2Gi
-            limits:
               cpu: "2"
-              memory: 4Gi
+              memory: 5Gi
+            limits:
+              cpu: "4"
+              memory: 7Gi
           # Model init (~25-30s): allow generous startup before readiness.
           startupProbe:
             httpGet:
