@@ -58,6 +58,33 @@ def _worker_evaluate(screen: str, inputs: dict, frame_index: int, title_suffix: 
     return frame_to_wire(frame)
 
 
+def _worker_evaluate_v1(
+    screen: str,
+    inputs: dict,
+    include_image: bool,
+    include_distribution: bool,
+    include_twiss: bool,
+    max_particles,
+    x_axis_value: float,
+) -> dict:
+    from webapp.backend.serialize import frame_to_v1_wire
+
+    frame = _SOURCE.snapshot(
+        screen,
+        control_updates=inputs,
+        x_axis_value=x_axis_value,
+        title_suffix="v1",
+        include_distribution=include_distribution,
+        max_particles=max_particles,
+    )
+    return frame_to_v1_wire(
+        frame,
+        include_image=include_image,
+        include_distribution=include_distribution,
+        include_twiss=include_twiss,
+    )
+
+
 def _worker_ping() -> bool:
     return _SOURCE is not None
 
@@ -82,6 +109,16 @@ class ModelPool:
         tasks = [loop.run_in_executor(self._ex, _worker_ping) for _ in range(self.workers * 3)]
         await asyncio.gather(*tasks)
 
+    async def _submit(self, fn, *args) -> dict:
+        if self._inflight >= self.max_inflight:
+            raise PoolFull(f"pool saturated ({self.max_inflight} in flight)")
+        self._inflight += 1
+        try:
+            loop = asyncio.get_running_loop()
+            return await loop.run_in_executor(self._ex, fn, *args)
+        finally:
+            self._inflight -= 1
+
     async def evaluate(
         self,
         screen: str,
@@ -90,22 +127,34 @@ class ModelPool:
         title_suffix: str = "",
         x_axis_value: float | None = None,
     ) -> dict:
-        if self._inflight >= self.max_inflight:
-            raise PoolFull(f"pool saturated ({self.max_inflight} in flight)")
-        self._inflight += 1
-        try:
-            loop = asyncio.get_running_loop()
-            return await loop.run_in_executor(
-                self._ex,
-                _worker_evaluate,
-                screen,
-                inputs,
-                frame_index,
-                title_suffix,
-                time.time() if x_axis_value is None else x_axis_value,
-            )
-        finally:
-            self._inflight -= 1
+        return await self._submit(
+            _worker_evaluate,
+            screen,
+            inputs,
+            frame_index,
+            title_suffix,
+            time.time() if x_axis_value is None else x_axis_value,
+        )
+
+    async def evaluate_v1(
+        self,
+        screen: str,
+        inputs: dict,
+        include_image: bool = False,
+        include_distribution: bool = False,
+        include_twiss: bool = False,
+        max_particles: int | None = None,
+    ) -> dict:
+        return await self._submit(
+            _worker_evaluate_v1,
+            screen,
+            inputs,
+            include_image,
+            include_distribution,
+            include_twiss,
+            max_particles,
+            time.time(),
+        )
 
     def shutdown(self) -> None:
         self._ex.shutdown(wait=False, cancel_futures=True)

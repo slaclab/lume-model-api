@@ -66,3 +66,48 @@ def frame_to_wire(frame) -> dict:
         "title_suffix": frame.title_suffix,
         "timestamp": float(frame.timestamp),
     }
+
+
+def frame_to_v1_wire(
+    frame,
+    include_image: bool = False,
+    include_distribution: bool = False,
+    include_twiss: bool = False,
+) -> dict:
+    """Serialize a BeamFrame to the /api/v1/evaluate wire dict.
+
+    Scalars are always included; the heavy outputs are opt-in. Model + version are
+    added by the endpoint. Done in the pool worker so arrays cross the process
+    boundary already base64-encoded.
+    """
+    out: dict = {
+        "screen": frame.screen_key,
+        "frame_index": int(frame.frame_index),
+        "timestamp": float(frame.timestamp),
+        "scalars": {
+            "xrms_um": float(frame.xrms_um),
+            "yrms_um": float(frame.yrms_um),
+            "sigma_z_um": float(frame.sigma_z_um),
+            "norm_emit_x_um_rad": float(frame.norm_emit_x_um_rad),
+            "norm_emit_y_um_rad": float(frame.norm_emit_y_um_rad),
+        },
+        "image": None,
+        "distribution": None,
+        "twiss": None,
+    }
+    if include_image and frame.image is not None:
+        image_b64, image_shape = encode_image(frame.image)
+        out["image"] = {"shape": image_shape, "dtype": "float32", "data_b64": image_b64}
+    if include_distribution and frame.distribution:
+        out["distribution"] = {
+            "n": int(frame.distribution["n"]),
+            "units": frame.distribution["units"],
+            "coords": {k: encode_f32(v) for k, v in frame.distribution["coords"].items()},
+        }
+    if include_twiss and frame.twiss_s is not None:
+        out["twiss"] = {
+            "s": to_list(frame.twiss_s),
+            "beta_x": to_list(frame.twiss_a_beta),
+            "beta_y": to_list(frame.twiss_b_beta),
+        }
+    return out

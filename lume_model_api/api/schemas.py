@@ -71,6 +71,50 @@ class SnapshotResponse(BaseModel):
     inputs: dict[str, float]
 
 
+# --- Friendly external API (/api/v1/evaluate) -----------------------------------
+# Same PV-name/value input contract as the UI, with a documented, stable schema and
+# opt-in heavy outputs. Large arrays are base64-encoded little-endian float32.
+
+
+class V1Image(BaseModel):
+    shape: list[int]  # [rows, cols]
+    dtype: str = "float32"
+    data_b64: str  # base64 little-endian float32, row-major
+
+
+class V1Distribution(BaseModel):
+    n: int  # particles per coordinate
+    units: dict[str, str]  # coord name -> unit (e.g. {"x": "m", "px": "eV/c"})
+    coords: dict[str, str]  # coord name -> base64 little-endian float32
+
+
+class V1Twiss(BaseModel):
+    s: list[float]
+    beta_x: list[float]
+    beta_y: list[float]
+
+
+class EvaluateV1Request(BaseModel):
+    screen: str
+    inputs: dict[str, float] = {}  # PV name -> value; overlaid on the design baseline
+    include_image: bool = False
+    include_distribution: bool = False
+    include_twiss: bool = False
+    max_particles: Optional[int] = None  # subsample the distribution if set
+
+
+class EvaluateV1Response(BaseModel):
+    model: str
+    version: str
+    screen: str
+    frame_index: int
+    timestamp: float
+    scalars: Scalars  # always returned
+    image: Optional[V1Image] = None
+    distribution: Optional[V1Distribution] = None
+    twiss: Optional[V1Twiss] = None
+
+
 # Scalar metadata surfaced by GET /config (fixed for the staged models).
 SCALAR_INFO: list[ScalarInfo] = [
     ScalarInfo(id="xrms_um", label="σx", unit="µm"),

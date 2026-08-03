@@ -36,6 +36,9 @@ class BeamFrame:
     image_caption: str = ""
     beam_x_um: Optional[np.ndarray] = None
     beam_px_evc: Optional[np.ndarray] = None
+    # Full phase-space distribution for the programmatic API (opt-in). Shape:
+    # {"n": int, "units": {coord: unit}, "coords": {coord: np.ndarray}}.
+    distribution: Optional[dict] = None
     twiss_s: Optional[np.ndarray] = None
     twiss_a_beta: Optional[np.ndarray] = None
     twiss_b_beta: Optional[np.ndarray] = None
@@ -105,6 +108,8 @@ class ModelImageSource:
         frame_index: int = 0,
         image_caption: str = "",
         title_suffix: str = "",
+        include_distribution: bool = False,
+        max_particles: Optional[int] = None,
     ) -> BeamFrame:
         screen = self.screens[screen_key]
         # Baseline-merge: overlay the request on the known baseline so evaluate is
@@ -141,6 +146,9 @@ class ModelImageSource:
             screen, result, beam
         )
         beam_x_um, beam_px_evc = self._extract_scatter(beam)
+        distribution = (
+            self._extract_distribution(beam, max_particles) if include_distribution else None
+        )
 
         twiss_s = result.get(self.twiss_s_pv)
         twiss_a_beta = result.get(self.twiss_a_beta_pv)
@@ -160,6 +168,7 @@ class ModelImageSource:
             image_caption=image_caption,
             beam_x_um=beam_x_um,
             beam_px_evc=beam_px_evc,
+            distribution=distribution,
             twiss_s=None if twiss_s is None else np.asarray(twiss_s, dtype=float),
             twiss_a_beta=None if twiss_a_beta is None else np.asarray(twiss_a_beta, dtype=float),
             twiss_b_beta=None if twiss_b_beta is None else np.asarray(twiss_b_beta, dtype=float),
@@ -200,4 +209,33 @@ class ModelImageSource:
             x = x[indices]
             px = px[indices]
         return (x * 1e6, px)
+
+    # Keys/units for the phase-space distribution surfaced by the v1 API. Verified
+    # against beamphysics.ParticleGroup (the object the model returns): positions in
+    # metres, momenta in eV/c, weight (charge) in Coulombs. Missing keys are skipped.
+    _DIST_COORDS = ("x", "px", "y", "py", "z", "pz")
+    _DIST_UNITS = {
+        "x": "m", "y": "m", "z": "m",
+        "px": "eV/c", "py": "eV/c", "pz": "eV/c",
+        "weight": "C",
+    }
+
+    def _extract_distribution(self, beam, max_particles: Optional[int]) -> Optional[dict]:
+        if beam is None:
+            return None
+        coords: dict[str, np.ndarray] = {}
+        for key in (*self._DIST_COORDS, "weight"):
+            try:
+                coords[key] = np.asarray(beam[key], dtype=float)
+            except Exception:  # coordinate not present on this beam object
+                continue
+        if not coords:
+            return None
+        n = len(next(iter(coords.values())))
+        if max_particles and n > max_particles:
+            indices = np.linspace(0, n - 1, max_particles, dtype=int)
+            coords = {k: v[indices] for k, v in coords.items()}
+            n = int(max_particles)
+        units = {k: self._DIST_UNITS.get(k, "") for k in coords}
+        return {"n": int(n), "units": units, "coords": coords}
     

@@ -34,7 +34,14 @@ from lume_visualizations.config import EPICS_INPUT_PVS, MANUAL_INPUT_PVS
 from lume_visualizations.fake_epics_ioc import FAKE_INPUT_SPECS
 
 from .pool import ModelPool, PoolFull
-from .schemas import ConfigResponse, EvaluateRequest, FrameResponse, SnapshotResponse
+from .schemas import (
+    ConfigResponse,
+    EvaluateRequest,
+    EvaluateV1Request,
+    EvaluateV1Response,
+    FrameResponse,
+    SnapshotResponse,
+)
 from .source import build_config, is_mock
 
 MODEL_NAME = os.environ.get("LUME_MODEL", "cu_hxr_staged")
@@ -115,6 +122,42 @@ async def evaluate(req: EvaluateRequest):
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except KeyError as exc:
         raise HTTPException(status_code=400, detail=f"Unknown screen: {exc}") from exc
+
+
+@app.post(
+    "/api/v1/evaluate",
+    response_model=EvaluateV1Response,
+    tags=["model-api"],
+    summary="Run the model on a set of inputs and return beam output",
+)
+async def evaluate_v1(req: EvaluateV1Request):
+    """Stateless model evaluation for programmatic clients (notebooks, GUIs).
+
+    `inputs` is a map of PV name -> engineering-unit control value, overlaid on the
+    model's design baseline — send only the knobs you want to change (`{}` = design
+    machine). `GET /api/config` lists the writable inputs with their ranges/defaults.
+
+    Scalars are always returned. Set `include_image` / `include_distribution` /
+    `include_twiss` for the heavier outputs; `max_particles` subsamples the
+    distribution. Large arrays are base64-encoded little-endian float32 — decode with
+    e.g. `numpy.frombuffer(base64.b64decode(s), dtype='<f4')` (image is row-major,
+    reshaped to `image.shape`).
+    """
+    version = f"{MODEL_NAME} (mock)" if app.state.mock else MODEL_NAME
+    try:
+        wire = await app.state.pool.evaluate_v1(
+            req.screen,
+            req.inputs,
+            include_image=req.include_image,
+            include_distribution=req.include_distribution,
+            include_twiss=req.include_twiss,
+            max_particles=req.max_particles,
+        )
+    except PoolFull as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except KeyError as exc:
+        raise HTTPException(status_code=400, detail=f"Unknown screen: {exc}") from exc
+    return {**wire, "model": MODEL_NAME, "version": version}
 
 
 @app.get("/api/machine-snapshot", response_model=SnapshotResponse)

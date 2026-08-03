@@ -62,6 +62,8 @@ class MockImageSource:
         frame_index: int = 0,
         image_caption: str = "",
         title_suffix: str = "",
+        include_distribution: bool = False,
+        max_particles: Optional[int] = None,
     ) -> BeamFrame:
         if _MOCK_DELAY:
             time.sleep(_MOCK_DELAY)
@@ -90,6 +92,22 @@ class MockImageSource:
         beta_x = 8.0 + 6.0 * np.sin(0.4 * s + knob) ** 2 + 0.5 * s
         beta_y = 7.0 + 5.0 * np.cos(0.35 * s + knob) ** 2 + 0.4 * s
 
+        # Synthetic 6D phase space (SI-ish) so the v1 distribution path is testable.
+        distribution = None
+        if include_distribution:
+            n = _N_SCATTER if not max_particles else min(_N_SCATTER, int(max_particles))
+            coords = {
+                "x": x[:n] * 1e-6,  # µm -> m
+                "px": px[:n],
+                "y": self._rng.normal(0.0, sigma_y * 1e-6, n),
+                "py": self._rng.normal(0.0, 1.5e4, n),
+                "z": self._rng.normal(0.0, sigma_z * 1e-6, n),
+                "pz": self._rng.normal(6.0e7, 1.0e5, n),
+                "weight": np.full(n, 1.0 / n),
+            }
+            units = {"x": "m", "y": "m", "z": "m", "px": "eV/c", "py": "eV/c", "pz": "eV/c", "weight": "C"}
+            distribution = {"n": n, "units": units, "coords": coords}
+
         return BeamFrame(
             screen_key=screen.key,
             screen_label=screen.label,
@@ -104,6 +122,7 @@ class MockImageSource:
             image_caption=image_caption,
             beam_x_um=x,
             beam_px_evc=px,
+            distribution=distribution,
             twiss_s=s,
             twiss_a_beta=beta_x,
             twiss_b_beta=beta_y,
