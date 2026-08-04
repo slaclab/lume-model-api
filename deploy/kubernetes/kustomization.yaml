@@ -9,6 +9,8 @@ resources:
   - service.yaml
   - ingress.yaml
   - ingress-redirect.yaml
+# NOTE: keda-scaledobject.yaml (eval-pool autoscaling) is intentionally NOT listed —
+# it needs KEDA installed + site-specific values. Apply it separately once ready.
 
 # Pin the image tag for a reproducible test. Bump newTag when you push a new image.
 images:

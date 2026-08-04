@@ -48,7 +48,7 @@ run pip install --force-reinstall --no-deps \
   "lume-torch @ git+https://github.com/lume-science/lume-torch@${LUME_TORCH_REF}"
 
 echo ">> Installing web + EPICS deps"
-run pip install fastapi "uvicorn[standard]" pydantic sse-starlette numpy scipy pyepics caproto
+run pip install fastapi "uvicorn[standard]" pydantic sse-starlette numpy scipy pyepics caproto prometheus-client
 
 echo ">> Installing lume-visualizations (editable, brings the webapp package)"
 run pip install -e "$REPO_ROOT"

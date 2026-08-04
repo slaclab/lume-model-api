@@ -25,9 +25,10 @@ import math
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from sse_starlette.sse import EventSourceResponse
 
 from lume_visualizations.config import EPICS_INPUT_PVS, MANUAL_INPUT_PVS
@@ -112,6 +113,12 @@ async def _read_live_inputs(app: FastAPI, elapsed: float) -> dict[str, float]:
 @app.get("/api/config", response_model=ConfigResponse)
 async def get_config() -> ConfigResponse:
     return build_config(None, MODEL_NAME, app.state.mock)
+
+
+@app.get("/metrics")
+def metrics() -> Response:
+    """Prometheus scrape endpoint. KEDA autoscales the eval pool on lume_pool_inflight."""
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 @app.post("/api/evaluate", response_model=FrameResponse)

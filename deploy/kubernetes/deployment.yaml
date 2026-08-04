@@ -1,13 +1,15 @@
-# Eval pool (N1). Stateless: serves the SPA + /api/config + /api/evaluate.
-# EPICS-free (LUME_ROLE=eval, no EPICS configmap) so it can scale to replicas > 1
-# without duplicating the live view. N3 raises replicas + adds KEDA; kept at 1 for now.
+# Eval pool. Stateless: serves the SPA + /api/config + /api/evaluate + /api/v1/evaluate.
+# EPICS-free (LUME_ROLE=eval, no EPICS configmap) so it scales freely.
+# Baseline 2 for HA (avoids ~25-30s model-cold-start downtime on a single-pod restart).
+# When KEDA is enabled (keda-scaledobject.yaml) its minReplicaCount governs and this
+# field is only the pre-KEDA/initial value. Note: each replica requests ~5Gi.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: lume-monitor-eval
   namespace: lume-visualizations
 spec:
-  replicas: 1
+  replicas: 2
   selector:
     matchLabels:
       app: lume-monitor-eval

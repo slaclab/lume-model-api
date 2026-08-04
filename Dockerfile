@@ -69,7 +69,7 @@ RUN python -m pip install --upgrade setuptools wheel \
     && python -m pip install --force-reinstall --no-deps \
         "lume-bmad @ git+https://github.com/lume-science/lume-bmad.git@e49c6891978ae2d0c09229307ebd2f3a4aa4887f" \
         "lume-torch @ git+https://github.com/lume-science/lume-torch@acd21eb1f66a525078db7baac21c99d973d47b94" \
-    && python -m pip install fastapi "uvicorn[standard]" sse-starlette pydantic numpy scipy pyepics caproto
+    && python -m pip install fastapi "uvicorn[standard]" sse-starlette pydantic numpy scipy pyepics caproto prometheus-client
 
 # The [surrogate] extra pulls an incompatible lume-cheetah (0.1.0, missing
 # `.transformer`); pin the git build that virtual-accelerator@${VA_REF} expects.

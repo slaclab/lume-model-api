@@ -1,0 +1,45 @@
+# Autoscaling for the eval pool (N3). NOT in kustomization.yaml by default — apply
+# this once KEDA is installed in the cluster and the TODO values below are set:
+#
+#   kubectl apply -f keda-scaledobject.yaml
+#
+# Two triggers, matching how the service is actually used:
+#   1. cron        — pre-scale for SCHEDULED classes/demos. Warm the pods before the
+#                    burst so nobody eats the ~25-30s model cold start.
+#   2. prometheus  — a saturation BACKSTOP for unplanned load, on in-flight work
+#                    (the honest signal; CPU is a poor proxy under thread pinning).
+#
+# KEDA creates an HPA targeting the Deployment; minReplicaCount then governs the
+# baseline (overriding the Deployment's replicas field). Only the eval pool scales —
+# the live producer is a singleton and must stay at replicas: 1.
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: lume-monitor-eval
+  namespace: lume-visualizations
+spec:
+  scaleTargetRef:
+    name: lume-monitor-eval
+  minReplicaCount: 2        # warm HA baseline
+  maxReplicaCount: 8        # TODO: cap for the cluster's memory budget (~5Gi/replica)
+  cooldownPeriod: 300       # don't scale down until idle a while (cold start is slow)
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleDown:
+          stabilizationWindowSeconds: 300
+  triggers:
+    - type: cron            # scheduled pre-scale — repeat this block per class window
+      metadata:
+        timezone: America/Los_Angeles
+        start: "0 8 * * 1-5"    # TODO: real class start (min hour dom mon dow)
+        end: "0 18 * * 1-5"     # TODO: real class end
+        desiredReplicas: "4"
+    - type: prometheus      # saturation backstop
+      metadata:
+        # TODO: real Prometheus address that scrapes the pods' /metrics.
+        serverAddress: http://prometheus-operated.monitoring.svc:9090
+        metricName: lume_pool_inflight
+        # Target ~3 in-flight per pod on average; KEDA adds replicas above that.
+        query: avg(lume_pool_inflight)
+        threshold: "3"

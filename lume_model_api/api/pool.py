@@ -17,6 +17,8 @@ import os
 import time
 from concurrent.futures import ProcessPoolExecutor
 
+from . import metrics
+
 # Per-worker global — the one model instance for this process.
 _SOURCE = None
 
@@ -101,6 +103,9 @@ class ModelPool:
             initializer=_init_worker,
             initargs=(model_name, mock),
         )
+        metrics.POOL_WORKERS.set(workers)
+        metrics.POOL_MAX_INFLIGHT.set(max_inflight)
+        metrics.POOL_INFLIGHT.set(0)
 
     async def warmup(self) -> None:
         """Force all K workers to spawn + build their model up front (parallel)."""
@@ -109,15 +114,25 @@ class ModelPool:
         tasks = [loop.run_in_executor(self._ex, _worker_ping) for _ in range(self.workers * 3)]
         await asyncio.gather(*tasks)
 
-    async def _submit(self, fn, *args) -> dict:
+    async def _submit(self, kind: str, fn, *args) -> dict:
         if self._inflight >= self.max_inflight:
+            metrics.POOL_REJECTED_TOTAL.labels(kind).inc()
             raise PoolFull(f"pool saturated ({self.max_inflight} in flight)")
         self._inflight += 1
+        metrics.POOL_INFLIGHT.set(self._inflight)
+        start = time.perf_counter()
+        outcome = "ok"
         try:
             loop = asyncio.get_running_loop()
             return await loop.run_in_executor(self._ex, fn, *args)
+        except Exception:
+            outcome = "error"
+            raise
         finally:
             self._inflight -= 1
+            metrics.POOL_INFLIGHT.set(self._inflight)
+            metrics.EVALUATE_SECONDS.labels(kind).observe(time.perf_counter() - start)
+            metrics.EVALUATE_TOTAL.labels(kind, outcome).inc()
 
     async def evaluate(
         self,
@@ -128,6 +143,7 @@ class ModelPool:
         x_axis_value: float | None = None,
     ) -> dict:
         return await self._submit(
+            "evaluate",
             _worker_evaluate,
             screen,
             inputs,
@@ -146,6 +162,7 @@ class ModelPool:
         max_particles: int | None = None,
     ) -> dict:
         return await self._submit(
+            "v1",
             _worker_evaluate_v1,
             screen,
             inputs,
