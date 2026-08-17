@@ -15,4 +15,4 @@ resources:
 # Pin the image tag for a reproducible test. Bump newTag when you push a new image.
 images:
   - name: ghcr.io/slaclab/lume-monitor
-    newTag: m2
+    newTag: n3
