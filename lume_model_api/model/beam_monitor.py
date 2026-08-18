@@ -13,6 +13,26 @@ import numpy as np
 from lume_visualizations.config import resolve_lcls_lattice_path
 from lume_visualizations.registry import ModelSpec, get_spec
 
+# Screen images are a 2D histogram of the tracked macroparticles (~1000), so at the
+# native 17.06 um pixel pitch they are sparse single-count noise. Convolving with a
+# Gaussian reproduces the documented incoherent OTR image formation (image = PSF *
+# transverse density; Loos et al., FEL08, THBAU01). The LCLS OTR optical PSF (FWHM
+# 1.44 lambda/theta ~= 4-11 um) is sub-pixel, so the resolution is pixel-limited:
+# sigma = 1 px is the physically honest kernel. Larger only de-noises the finite
+# particle sample; it does not model the instrument.
+OTR_PSF_SIGMA_PX = 1.0
+
+
+def _apply_screen_psf(image: Optional[np.ndarray], sigma_px: float = OTR_PSF_SIGMA_PX):
+    """Convolve a raw screen histogram with the pixel-limited OTR PSF, renormalized."""
+    if image is None or sigma_px <= 0:
+        return image
+    from scipy.ndimage import gaussian_filter
+
+    smoothed = gaussian_filter(np.asarray(image, dtype=float), sigma=sigma_px)
+    peak = float(smoothed.max())
+    return smoothed / peak if peak > 0 else smoothed
+
 
 # ---------------------------------------------------------------------------
 # Data container returned by every source on each "shot"
@@ -141,7 +161,7 @@ class ModelImageSource:
 
         result = self.model.get(pvs)
         beam = result.get(screen.particle_source)
-        image = result.get(screen.image_pv) if screen.image_pv else None
+        image = _apply_screen_psf(result.get(screen.image_pv)) if screen.image_pv else None
         xrms_um, yrms_um, sigma_z_um, emit_x_um, emit_y_um = self._extract_scalars(
             screen, result, beam
         )
