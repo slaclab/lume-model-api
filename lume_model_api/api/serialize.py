@@ -13,6 +13,8 @@ from typing import Optional
 
 import numpy as np
 
+from lume_visualizations.beam_monitor import SCATTER_DISPLAY_UNITS
+
 
 def encode_f32(array) -> str:
     """Base64-encode an array as little-endian float32 bytes."""
@@ -57,8 +59,16 @@ def frame_to_wire(frame) -> dict:
             "norm_emit_x_um_rad": float(frame.norm_emit_x_um_rad),
             "norm_emit_y_um_rad": float(frame.norm_emit_y_um_rad),
         },
-        "scatter_x_b64": None if frame.beam_x_um is None else encode_f32(frame.beam_x_um),
-        "scatter_px_b64": None if frame.beam_px_evc is None else encode_f32(frame.beam_px_evc),
+        "scatter_b64": (
+            None
+            if frame.scatter is None
+            else {k: encode_f32(v) for k, v in frame.scatter.items()}
+        ),
+        "scatter_units": (
+            None
+            if frame.scatter is None
+            else {k: SCATTER_DISPLAY_UNITS.get(k, "") for k in frame.scatter}
+        ),
         "twiss_s": to_list(frame.twiss_s),
         "twiss_a_beta": to_list(frame.twiss_a_beta),
         "twiss_b_beta": to_list(frame.twiss_b_beta),

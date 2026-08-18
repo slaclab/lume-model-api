@@ -13,6 +13,15 @@ import numpy as np
 from lume_visualizations.config import resolve_lcls_lattice_path
 from lume_visualizations.registry import ModelSpec, get_spec
 
+# Phase-space coordinates exposed for the scatter plot (any vs any). Positions are
+# converted to µm for display; momenta stay in eV/c.
+SCATTER_COORDS = ("x", "px", "y", "py", "z", "pz")
+SCATTER_DISPLAY_UNITS = {
+    "x": "µm", "y": "µm", "z": "µm",
+    "px": "eV/c", "py": "eV/c", "pz": "eV/c",
+}
+_SCATTER_POSITION_COORDS = ("x", "y", "z")
+
 # Screen images are a 2D histogram of the tracked macroparticles (~1000), so at the
 # native 17.06 um pixel pitch they are sparse single-count noise. Convolving with a
 # Gaussian reproduces the documented incoherent OTR image formation (image = PSF *
@@ -54,8 +63,9 @@ class BeamFrame:
     image: Optional[np.ndarray] = None
     image_message: str = ""
     image_caption: str = ""
-    beam_x_um: Optional[np.ndarray] = None
-    beam_px_evc: Optional[np.ndarray] = None
+    # Phase-space scatter coordinates in display units (see SCATTER_DISPLAY_UNITS):
+    # {coord: 1D array}. Coords absent on the beam object are omitted.
+    scatter: Optional[dict[str, np.ndarray]] = None
     # Full phase-space distribution for the programmatic API (opt-in). Shape:
     # {"n": int, "units": {coord: unit}, "coords": {coord: np.ndarray}}.
     distribution: Optional[dict] = None
@@ -165,7 +175,7 @@ class ModelImageSource:
         xrms_um, yrms_um, sigma_z_um, emit_x_um, emit_y_um = self._extract_scalars(
             screen, result, beam
         )
-        beam_x_um, beam_px_evc = self._extract_scatter(beam)
+        scatter = self._extract_scatter(beam)
         distribution = (
             self._extract_distribution(beam, max_particles) if include_distribution else None
         )
@@ -186,8 +196,7 @@ class ModelImageSource:
             image=image,
             image_message=screen.image_message if image is None else "",
             image_caption=image_caption,
-            beam_x_um=beam_x_um,
-            beam_px_evc=beam_px_evc,
+            scatter=scatter,
             distribution=distribution,
             twiss_s=None if twiss_s is None else np.asarray(twiss_s, dtype=float),
             twiss_a_beta=None if twiss_a_beta is None else np.asarray(twiss_a_beta, dtype=float),
@@ -219,16 +228,26 @@ class ModelImageSource:
             float(beam["norm_emit_y"]) * 1e6,
         )
 
-    def _extract_scatter(self, beam) -> tuple[Optional[np.ndarray], Optional[np.ndarray]]:
+    def _extract_scatter(self, beam) -> Optional[dict[str, np.ndarray]]:
         if beam is None:
-            return (None, None)
-        x = np.asarray(beam["x"], dtype=float)
-        px = np.asarray(beam["px"], dtype=float)
-        if len(x) > self.max_scatter_points:
-            indices = np.linspace(0, len(x) - 1, self.max_scatter_points, dtype=int)
-            x = x[indices]
-            px = px[indices]
-        return (x * 1e6, px)
+            return None
+        coords: dict[str, np.ndarray] = {}
+        for key in SCATTER_COORDS:
+            try:
+                coords[key] = np.asarray(beam[key], dtype=float)
+            except Exception:  # coordinate not present on this beam object
+                continue
+        if not coords:
+            return None
+        n = len(next(iter(coords.values())))
+        if n > self.max_scatter_points:
+            indices = np.linspace(0, n - 1, self.max_scatter_points, dtype=int)
+            coords = {k: v[indices] for k, v in coords.items()}
+        # Positions: metres -> µm for display; momenta already in eV/c.
+        for key in _SCATTER_POSITION_COORDS:
+            if key in coords:
+                coords[key] = coords[key] * 1e6
+        return coords
 
     # Keys/units for the phase-space distribution surfaced by the v1 API. Verified
     # against beamphysics.ParticleGroup (the object the model returns): positions in

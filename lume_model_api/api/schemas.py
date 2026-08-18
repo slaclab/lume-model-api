@@ -57,8 +57,8 @@ class FrameResponse(BaseModel):
     image_message: str = ""
     image_caption: str = ""
     scalars: Scalars
-    scatter_x_b64: Optional[str] = None
-    scatter_px_b64: Optional[str] = None
+    scatter_b64: Optional[dict[str, str]] = None
+    scatter_units: Optional[dict[str, str]] = None
     twiss_s: Optional[list[float]] = None
     twiss_a_beta: Optional[list[float]] = None
     twiss_b_beta: Optional[list[float]] = None

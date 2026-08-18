@@ -83,9 +83,14 @@ class MockImageSource:
         if has_image:
             image = self._gaussian_image(sigma_x, sigma_y)
 
-        # Phase-space scatter in (x µm, px eV/c).
+        # Phase-space scatter: positions in µm, momenta in eV/c.
         x = self._rng.normal(0.0, sigma_x, _N_SCATTER)
         px = self._rng.normal(0.0, 1.5e4 * (0.5 + knob), _N_SCATTER) + 3.0e3 * (x / max(sigma_x, 1.0))
+        y = self._rng.normal(0.0, sigma_y, _N_SCATTER)
+        py = self._rng.normal(0.0, 1.5e4 * (0.5 + (1.0 - knob)), _N_SCATTER) + 3.0e3 * (y / max(sigma_y, 1.0))
+        z = self._rng.normal(0.0, sigma_z, _N_SCATTER)
+        pz = self._rng.normal(6.0e7, 1.0e5, _N_SCATTER) + 5.0e4 * (z / max(sigma_z, 1.0))
+        scatter = {"x": x, "px": px, "y": y, "py": py, "z": z, "pz": pz}
 
         # Twiss beta functions along s.
         s = np.linspace(0.0, 20.0, 120)
@@ -120,8 +125,7 @@ class MockImageSource:
             image=image,
             image_message="" if has_image else screen.image_message,
             image_caption=image_caption,
-            beam_x_um=x,
-            beam_px_evc=px,
+            scatter=scatter,
             distribution=distribution,
             twiss_s=s,
             twiss_a_beta=beta_x,
