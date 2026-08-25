@@ -1,7 +1,8 @@
 # Build context = repo root:  docker build -f webapp/Dockerfile -t lume-monitor .
 ARG PYTHON_VERSION=3.12
-ARG LCLS_LATTICE_REF=52ad1a5ddd00aa57a89a4fc7f2fa1a2363216ae8
-ARG VA_REF=77bbda8
+ARG LCLS_LATTICE_REF=c6b8defbf2ba83bf8f5af70191c893de361657d1 # 52ad1a5ddd00aa57a89a4fc7f2fa1a2363216ae8
+ARG FACET_LATTICE_REF=d8b2e3f1db4d8f34b95cab5e1a3959f073ac165f 
+ARG VA_REF=d67f70c7f453ad5cbb1fc6bd866cbd985aa55d6b # 77bbda8
 ARG DOCKER_PLATFORM=linux/amd64
 
 # --- Stage 1: build the React frontend ---
@@ -16,6 +17,7 @@ RUN npm run build
 FROM --platform=${DOCKER_PLATFORM} python:${PYTHON_VERSION}-slim AS runtime
 ARG PYTHON_VERSION
 ARG LCLS_LATTICE_REF
+ARG FACET_LATTICE_REF
 ARG VA_REF
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -24,6 +26,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PATH=/opt/conda/bin:$PATH \
     PYTHONPATH=/app \
     LCLS_LATTICE=/opt/lcls-lattice \
+    FACET_LATTICE=/opt/facet-lattice \
     KMP_DUPLICATE_LIB_OK=TRUE \
     HDF5_USE_FILE_LOCKING=FALSE \
     OMP_NUM_THREADS=2 \
@@ -57,6 +60,8 @@ WORKDIR /app
 
 RUN git clone https://github.com/slaclab/lcls-lattice.git /opt/lcls-lattice \
     && cd /opt/lcls-lattice && git checkout ${LCLS_LATTICE_REF}
+RUN git clone https://github.com/slaclab/facet2-lattice.git /opt/facet-lattice \
+    && cd /opt/facet-lattice && git checkout ${FACET_LATTICE_REF}
 
 # virtual-accelerator @ pinned ref (bundles the injector-surrogate subtree),
 # then the pinned lume-bmad / lume-torch commits. No FEL surrogate (out of scope).

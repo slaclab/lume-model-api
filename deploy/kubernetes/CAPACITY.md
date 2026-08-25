@@ -4,10 +4,27 @@ Measured 2026-08-04 against the deployed `cu_hxr_staged` model on the S3DF clust
 (`ad-accel-online-ml`). Purpose: pin per-eval latency `L`, find the right worker
 count `K` per pod, and estimate how many concurrent users we can serve.
 
+> **Update — 2026-08-24 (production `/metrics`, image `n6`).** Read `lume_evaluate_seconds`
+> straight off the running pods: **p50 ≈ 2.5s per eval, not ~5s.** Eval pod (interactive)
+> mean 2.52s over 48 evals; live pod mean 2.56s over 18k evals — with essentially the entire
+> histogram in the 2–4s bucket on **both**. Takeaways that revise the 2026-08-04 numbers below:
+> - The current model is ~2× faster than the ad-hoc port-forward timing below (older image).
+>   **Halve the eval times / roughly double the capacity estimates.** Re-measure to refresh.
+> - **Live and interactive evals cost the same** — the live view is not a cheaper path. The
+>   observed "live ~2s vs interactive ~6s" is the interactive client round-trip (300ms debounce
+>   + HTTP request/response + full-frame transfer/parse), which the SSE-pushed live view skips.
+> - **Frontend fix (implemented, pending commit/deploy):** the 300ms slider debounce was
+>   replaced by **commit-on-release + request sequencing** — eval fires once on pointer/key
+>   release and only the newest result renders. Removes the debounce wait without eval-storm /
+>   out-of-order risk.
+> - **Live cadence:** the loop runs only while a screen has a subscriber, then ~1 frame / `L`
+>   (~2.5s). (Answers the live-cadence TODO below.)
+
 ## TL;DR
 
-- **`L ≈ 5s` per eval** (p50), and it's **independent of thread count**. This is the
-  real bottleneck, not pod count.
+- **`L ≈ 5s` per eval** (p50) — _superseded: prod `/metrics` on `n6` shows ~2.5s; see the
+  2026-08-24 update above._ Still the real bottleneck, not pod count, and **independent of
+  thread count**.
 - **Current pod tuning is already near-optimal.** Keep ~2 CPU cores per worker
   (`K = cores/2`). Do **not** pack more workers per pod — it makes things worse.
 - **Concurrent no-added-latency evals ≈ `replicas × cores/2`.** Reaching ~100
