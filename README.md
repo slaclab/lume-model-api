@@ -14,10 +14,6 @@ injector / HXR line).
   - `epics_controls.py` — read-only EPICS input reader.
   - `fake_epics_ioc.py` — synthetic IOC for local testing without the real machine.
 
-> **History:** the earlier **marimo** live-stream monitor and **quad-scan** apps — and
-> their heartbeat allocator + per-worker `wN` Kubernetes deploy — were retired in favor
-> of the webapp. See the git history if you need them.
-
 ## Install (working on the model layer)
 
 The heavy model (`virtual_accelerator` + torch + Bmad) is installed separately — see
