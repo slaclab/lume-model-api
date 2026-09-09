@@ -1,9 +1,9 @@
-"""In-pod subprocess pool of model instances (M2 concurrency).
+"""In-pod subprocess pool of model instances.
 
 Each worker process holds ONE model instance (process isolation is required: torch
 double-load segfault + pytao thread-unsafety). K workers run K evaluates in parallel,
-replacing M1's single asyncio-lock serialization. Baseline-merge lives in the source's
-`snapshot`, so every request is history-independent.
+rather than serializing them behind a single asyncio lock. Baseline-merge lives in the
+source's `snapshot`, so every request is history-independent.
 
 Uses a spawn context (fork + torch/OpenMP is unsafe). A simple in-flight counter gives
 backpressure (PoolFull -> HTTP 503 when saturated).

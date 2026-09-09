@@ -1,4 +1,4 @@
-"""Prometheus metrics for the model pool (N3).
+"""Prometheus metrics for the model pool.
 
 The honest saturation signal for autoscaling is in-flight work, not CPU (thread
 pinning makes CPU a poor proxy). These live in the main process — the async

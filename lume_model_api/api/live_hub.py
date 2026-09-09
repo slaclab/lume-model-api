@@ -1,4 +1,4 @@
-"""Shared live-view broadcast (N1).
+"""Shared live-view broadcast.
 
 One background loop per *active screen* reads the live inputs and evaluates as
 fast as it can (paced only by evaluate latency — there is no poll period), then

@@ -1,4 +1,4 @@
-# Live producer (N1). The ONE EPICS reader: runs the broadcast hub (one loop per
+# Live producer. The ONE EPICS reader: runs the broadcast hub (one loop per
 # active screen -> SSE fan-out) and serves /api/live/stream + /api/machine-snapshot.
 #
 # replicas MUST stay 1. This is a singleton on purpose: if it ran on N replicas each

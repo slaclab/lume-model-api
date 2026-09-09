@@ -1,4 +1,4 @@
-# Autoscaling for the eval pool (N3). NOT in kustomization.yaml by default — apply
+# Autoscaling for the eval pool. NOT in kustomization.yaml by default — apply
 # this once KEDA is installed in the cluster and the TODO values below are set:
 #
 #   kubectl apply -f keda-scaledobject.yaml
