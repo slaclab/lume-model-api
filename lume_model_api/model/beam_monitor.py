@@ -23,12 +23,11 @@ SCATTER_DISPLAY_UNITS = {
 _SCATTER_POSITION_COORDS = ("x", "y", "z")
 
 # Screen images are a 2D histogram of the tracked macroparticles (~1000), so at the
-# native 17.06 um pixel pitch they are sparse single-count noise. Convolving with a
+# screen 17.06 um pixel resolution they are sparse single-count noise. Convolving with a
 # Gaussian reproduces the documented incoherent OTR image formation (image = PSF *
 # transverse density; Loos et al., FEL08, THBAU01). The LCLS OTR optical PSF (FWHM
 # 1.44 lambda/theta ~= 4-11 um) is sub-pixel, so the resolution is pixel-limited:
-# sigma = 1 px is the physically honest kernel. Larger only de-noises the finite
-# particle sample; it does not model the instrument.
+# sigma = 1 px is the physical kernel.
 OTR_PSF_SIGMA_PX = 1.0
 
 
@@ -84,8 +83,6 @@ class BeamFrame:
 
 class ModelImageSource:
     """Read beam images, beam phase space, and scalars from a staged model."""
-
-    thread_safe = False
 
     def __init__(
         self,
@@ -143,8 +140,7 @@ class ModelImageSource:
     ) -> BeamFrame:
         screen = self.screens[screen_key]
         # Baseline-merge: overlay the request on the known baseline so evaluate is
-        # history-independent on any (pooled) instance — a missing key falls back to
-        # the design default, never a previous request's value.
+        # history-independent on any (pooled) instance
         effective = {**self.baseline, **(control_updates or {})}
         writable_updates = self._filter_writable_updates(effective)
         if writable_updates:
