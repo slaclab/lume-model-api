@@ -20,6 +20,9 @@ React monitor that was its first consumer.
 - `deploy/kubernetes/` — the eval pool, the live singleton, service, ingress and KEDA.
 - `docs/BACKEND.md` — the API contract, run instructions and deploy notes. **Read this
   before writing a client.**
+- `AGENTS.md` — the sharp edges. Which imports must stay lazy, why the pool is processes, what
+  mock mode does not simulate, and what to leave alone. Worth reading before changing anything
+  structural, human or agent.
 
 ## The one evaluate endpoint
 
