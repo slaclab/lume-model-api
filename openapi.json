@@ -1,0 +1,776 @@
+{
+  "components": {
+    "schemas": {
+      "ConfigResponse": {
+        "properties": {
+          "inputs": {
+            "items": {
+              "$ref": "#/components/schemas/InputInfo"
+            },
+            "title": "Inputs",
+            "type": "array"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "scalars": {
+            "items": {
+              "$ref": "#/components/schemas/ScalarInfo"
+            },
+            "title": "Scalars",
+            "type": "array"
+          },
+          "screens": {
+            "items": {
+              "$ref": "#/components/schemas/ScreenInfo"
+            },
+            "title": "Screens",
+            "type": "array"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "model",
+          "version",
+          "screens",
+          "inputs",
+          "scalars"
+        ],
+        "title": "ConfigResponse",
+        "type": "object"
+      },
+      "EvaluateRequest": {
+        "properties": {
+          "inputs": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "default": {},
+            "title": "Inputs",
+            "type": "object"
+          },
+          "screen": {
+            "title": "Screen",
+            "type": "string"
+          }
+        },
+        "required": [
+          "screen"
+        ],
+        "title": "EvaluateRequest",
+        "type": "object"
+      },
+      "EvaluateV1Request": {
+        "properties": {
+          "include_distribution": {
+            "default": false,
+            "title": "Include Distribution",
+            "type": "boolean"
+          },
+          "include_image": {
+            "default": false,
+            "title": "Include Image",
+            "type": "boolean"
+          },
+          "include_twiss": {
+            "default": false,
+            "title": "Include Twiss",
+            "type": "boolean"
+          },
+          "inputs": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "default": {},
+            "title": "Inputs",
+            "type": "object"
+          },
+          "max_particles": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Particles"
+          },
+          "screen": {
+            "title": "Screen",
+            "type": "string"
+          }
+        },
+        "required": [
+          "screen"
+        ],
+        "title": "EvaluateV1Request",
+        "type": "object"
+      },
+      "EvaluateV1Response": {
+        "properties": {
+          "distribution": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/V1Distribution"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "frame_index": {
+            "title": "Frame Index",
+            "type": "integer"
+          },
+          "image": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/V1Image"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "scalars": {
+            "$ref": "#/components/schemas/Scalars"
+          },
+          "screen": {
+            "title": "Screen",
+            "type": "string"
+          },
+          "timestamp": {
+            "title": "Timestamp",
+            "type": "number"
+          },
+          "twiss": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/V1Twiss"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "model",
+          "version",
+          "screen",
+          "frame_index",
+          "timestamp",
+          "scalars"
+        ],
+        "title": "EvaluateV1Response",
+        "type": "object"
+      },
+      "FrameResponse": {
+        "properties": {
+          "frame_index": {
+            "default": 0,
+            "title": "Frame Index",
+            "type": "integer"
+          },
+          "image_b64": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image B64"
+          },
+          "image_caption": {
+            "default": "",
+            "title": "Image Caption",
+            "type": "string"
+          },
+          "image_message": {
+            "default": "",
+            "title": "Image Message",
+            "type": "string"
+          },
+          "image_shape": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Shape"
+          },
+          "scalars": {
+            "$ref": "#/components/schemas/Scalars"
+          },
+          "scatter_b64": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scatter B64"
+          },
+          "scatter_units": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scatter Units"
+          },
+          "screen_key": {
+            "title": "Screen Key",
+            "type": "string"
+          },
+          "screen_label": {
+            "title": "Screen Label",
+            "type": "string"
+          },
+          "timestamp": {
+            "default": 0.0,
+            "title": "Timestamp",
+            "type": "number"
+          },
+          "title_suffix": {
+            "default": "",
+            "title": "Title Suffix",
+            "type": "string"
+          },
+          "twiss_a_beta": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Twiss A Beta"
+          },
+          "twiss_b_beta": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Twiss B Beta"
+          },
+          "twiss_s": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Twiss S"
+          }
+        },
+        "required": [
+          "screen_key",
+          "screen_label",
+          "scalars"
+        ],
+        "title": "FrameResponse",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "InputInfo": {
+        "properties": {
+          "default": {
+            "title": "Default",
+            "type": "number"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "max": {
+            "title": "Max",
+            "type": "number"
+          },
+          "min": {
+            "title": "Min",
+            "type": "number"
+          },
+          "unit": {
+            "default": "",
+            "title": "Unit",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "min",
+          "max",
+          "default"
+        ],
+        "title": "InputInfo",
+        "type": "object"
+      },
+      "ScalarInfo": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "unit": {
+            "title": "Unit",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "unit"
+        ],
+        "title": "ScalarInfo",
+        "type": "object"
+      },
+      "Scalars": {
+        "properties": {
+          "norm_emit_x_um_rad": {
+            "title": "Norm Emit X Um Rad",
+            "type": "number"
+          },
+          "norm_emit_y_um_rad": {
+            "title": "Norm Emit Y Um Rad",
+            "type": "number"
+          },
+          "sigma_z_um": {
+            "title": "Sigma Z Um",
+            "type": "number"
+          },
+          "xrms_um": {
+            "title": "Xrms Um",
+            "type": "number"
+          },
+          "yrms_um": {
+            "title": "Yrms Um",
+            "type": "number"
+          }
+        },
+        "required": [
+          "xrms_um",
+          "yrms_um",
+          "sigma_z_um",
+          "norm_emit_x_um_rad",
+          "norm_emit_y_um_rad"
+        ],
+        "title": "Scalars",
+        "type": "object"
+      },
+      "ScreenInfo": {
+        "properties": {
+          "has_image": {
+            "title": "Has Image",
+            "type": "boolean"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "has_image"
+        ],
+        "title": "ScreenInfo",
+        "type": "object"
+      },
+      "SnapshotResponse": {
+        "properties": {
+          "inputs": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "title": "Inputs",
+            "type": "object"
+          }
+        },
+        "required": [
+          "inputs"
+        ],
+        "title": "SnapshotResponse",
+        "type": "object"
+      },
+      "V1Distribution": {
+        "properties": {
+          "coords": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Coords",
+            "type": "object"
+          },
+          "n": {
+            "title": "N",
+            "type": "integer"
+          },
+          "units": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Units",
+            "type": "object"
+          }
+        },
+        "required": [
+          "n",
+          "units",
+          "coords"
+        ],
+        "title": "V1Distribution",
+        "type": "object"
+      },
+      "V1Image": {
+        "properties": {
+          "data_b64": {
+            "title": "Data B64",
+            "type": "string"
+          },
+          "dtype": {
+            "default": "float32",
+            "title": "Dtype",
+            "type": "string"
+          },
+          "shape": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Shape",
+            "type": "array"
+          }
+        },
+        "required": [
+          "shape",
+          "data_b64"
+        ],
+        "title": "V1Image",
+        "type": "object"
+      },
+      "V1Twiss": {
+        "properties": {
+          "beta_x": {
+            "items": {
+              "type": "number"
+            },
+            "title": "Beta X",
+            "type": "array"
+          },
+          "beta_y": {
+            "items": {
+              "type": "number"
+            },
+            "title": "Beta Y",
+            "type": "array"
+          },
+          "s": {
+            "items": {
+              "type": "number"
+            },
+            "title": "S",
+            "type": "array"
+          }
+        },
+        "required": [
+          "s",
+          "beta_x",
+          "beta_y"
+        ],
+        "title": "V1Twiss",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "title": "LUME Live Stream Monitor",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/config": {
+      "get": {
+        "operationId": "get_config_api_config_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Config"
+      }
+    },
+    "/api/evaluate": {
+      "post": {
+        "operationId": "evaluate_api_evaluate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EvaluateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FrameResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Evaluate"
+      }
+    },
+    "/api/live/stream": {
+      "get": {
+        "operationId": "live_stream_api_live_stream_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "screen",
+            "required": false,
+            "schema": {
+              "default": "OTR4",
+              "title": "Screen",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Live Stream"
+      }
+    },
+    "/api/machine-snapshot": {
+      "get": {
+        "operationId": "machine_snapshot_api_machine_snapshot_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SnapshotResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Machine Snapshot"
+      }
+    },
+    "/api/v1/evaluate": {
+      "post": {
+        "description": "Stateless model evaluation for programmatic clients (notebooks, GUIs).\n\n`inputs` is a map of PV name -> engineering-unit control value, overlaid on the\nmodel's design baseline \u2014 send only the knobs you want to change (`{}` = design\nmachine). `GET /api/config` lists the writable inputs with their ranges/defaults.\n\nScalars are always returned. Set `include_image` / `include_distribution` /\n`include_twiss` for the heavier outputs; `max_particles` subsamples the\ndistribution. Large arrays are base64-encoded little-endian float32 \u2014 decode with\ne.g. `numpy.frombuffer(base64.b64decode(s), dtype='<f4')` (image is row-major,\nreshaped to `image.shape`).",
+        "operationId": "evaluate_v1_api_v1_evaluate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EvaluateV1Request"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EvaluateV1Response"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Run the model on a set of inputs and return beam output",
+        "tags": [
+          "model-api"
+        ]
+      }
+    },
+    "/metrics": {
+      "get": {
+        "description": "Prometheus scrape endpoint. KEDA autoscales the eval pool on lume_pool_inflight.",
+        "operationId": "metrics_metrics_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Metrics"
+      }
+    }
+  }
+}

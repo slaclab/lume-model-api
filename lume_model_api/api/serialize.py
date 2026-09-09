@@ -73,6 +73,13 @@ def frame_to_wire(frame) -> dict:
 
     Done in the pool worker so large arrays are encoded once and cross the process
     boundary as compact base64 strings rather than raw numpy.
+
+    KEEP THIS UNCONDITIONAL. Every FrameResponse key must be present on every call. The
+    SSE stream json.dumps this dict without validating it against FrameResponse (see
+    main.py live_stream), so a conditionally-omitted key would reach the browser absent,
+    and the frontend types it as Required<FrameResponse> in api/client.ts. Adding a
+    conditional key here breaks that silently, with no type error to catch it. Use the
+    frame_to_v1_wire pattern below only for the v1 endpoint, which FastAPI does validate.
     """
     image_b64, image_shape = encode_image(frame.image)
     return {

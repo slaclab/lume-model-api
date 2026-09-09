@@ -1,0 +1,70 @@
+# Protects the two contracts around webapp/backend.
+#
+#   drift    The frontend types in webapp/frontend/src/api/schema.d.ts are generated from
+#            webapp/openapi.json, which is generated from the app. Both are committed, so
+#            they go stale if someone edits a route or webapp/backend/schemas.py without
+#            regenerating. Stale types mean a renamed field stops being a compile error.
+#
+#   contract /api/v1/* is called by notebooks and GUIs outside this repo. The drift check
+#            passes happily when a v1 field is renamed, so tests/test_api_contract.py
+#            asserts the v1 field names by hand.
+#
+# No model needed. Importing webapp.backend.main pulls in caproto and numpy only, because
+# the model is built inside ModelPool worker subprocesses and app.openapi() never starts
+# them. So no torch, no pytao, no Bmad lattice and no EPICS.
+
+name: contract
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12' # matches ARG PYTHON_VERSION in webapp/Dockerfile
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20' # matches the node image in webapp/Dockerfile stage 1
+
+      # The runtime dependency list lives in webapp/Dockerfile (the pip install near the
+      # end of stage 2). This is a deliberate subset of it, just enough to import the app.
+      # fastapi and pydantic are pinned because they generate the JSON schema, so an
+      # unpinned upgrade would fail the drift check on unrelated pull requests. Bump these
+      # on purpose, regenerate, and commit.
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e . \
+            fastapi==0.141.1 \
+            pydantic==2.13.4 \
+            sse-starlette \
+            prometheus-client \
+            pytest
+
+      - name: External /api/v1 contract
+        run: pytest -q
+
+      - name: Regenerate the OpenAPI schema
+        run: python webapp/scripts/dump_openapi.py
+
+      - name: Regenerate the frontend types
+        working-directory: webapp/frontend
+        run: |
+          npm ci
+          npm run gen:api
+
+      - name: Fail if a generated artifact is stale
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            git status --short
+            git diff
+            echo "::error::Generated contract artifacts are out of date. Run 'python webapp/scripts/dump_openapi.py' then 'cd webapp/frontend && npm run gen:api', and commit webapp/openapi.json plus webapp/frontend/src/api/schema.d.ts."
+            exit 1
+          fi

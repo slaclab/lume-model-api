@@ -22,3 +22,6 @@ lume-fake-epics-ioc = "lume_visualizations.fake_epics_ioc:main"
 [tool.setuptools.packages.find]
 include = ["lume_visualizations"]
 namespaces = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
