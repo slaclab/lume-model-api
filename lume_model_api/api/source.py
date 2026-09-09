@@ -63,4 +63,5 @@ def build_config(source, model_name: str, mock: bool) -> ConfigResponse:
         screens=screens,
         inputs=inputs,
         scalars=SCALAR_INFO,
+        scan_pv=spec.scan_pv,
     )

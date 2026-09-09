@@ -47,7 +47,17 @@ def _init_worker(model_name: str, mock: bool) -> None:
     _SOURCE = get_source(model_name, mock=mock)
 
 
-def _worker_evaluate(screen: str, inputs: dict, frame_index: int, title_suffix: str, x_axis_value: float) -> dict:
+def _worker_evaluate(
+    screen: str,
+    inputs: dict,
+    include_image: bool,
+    include_distribution: bool,
+    include_twiss: bool,
+    max_particles,
+    frame_index: int,
+    image_caption: str,
+    x_axis_value: float,
+) -> dict:
     from webapp.backend.serialize import frame_to_wire
 
     frame = _SOURCE.snapshot(
@@ -55,31 +65,11 @@ def _worker_evaluate(screen: str, inputs: dict, frame_index: int, title_suffix: 
         control_updates=inputs,
         x_axis_value=x_axis_value,
         frame_index=frame_index,
-        title_suffix=title_suffix,
-    )
-    return frame_to_wire(frame)
-
-
-def _worker_evaluate_v1(
-    screen: str,
-    inputs: dict,
-    include_image: bool,
-    include_distribution: bool,
-    include_twiss: bool,
-    max_particles,
-    x_axis_value: float,
-) -> dict:
-    from webapp.backend.serialize import frame_to_v1_wire
-
-    frame = _SOURCE.snapshot(
-        screen,
-        control_updates=inputs,
-        x_axis_value=x_axis_value,
-        title_suffix="v1",
+        image_caption=image_caption,
         include_distribution=include_distribution,
         max_particles=max_particles,
     )
-    return frame_to_v1_wire(
+    return frame_to_wire(
         frame,
         include_image=include_image,
         include_distribution=include_distribution,
@@ -138,39 +128,34 @@ class ModelPool:
         self,
         screen: str,
         inputs: dict,
-        frame_index: int = 0,
-        title_suffix: str = "",
-        x_axis_value: float | None = None,
-    ) -> dict:
-        return await self._submit(
-            "evaluate",
-            _worker_evaluate,
-            screen,
-            inputs,
-            frame_index,
-            title_suffix,
-            time.time() if x_axis_value is None else x_axis_value,
-        )
-
-    async def evaluate_v1(
-        self,
-        screen: str,
-        inputs: dict,
+        kind: str = "interactive",
         include_image: bool = False,
         include_distribution: bool = False,
         include_twiss: bool = False,
         max_particles: int | None = None,
+        frame_index: int = 0,
+        image_caption: str = "",
+        x_axis_value: float | None = None,
     ) -> dict:
+        """The one evaluate path, serving the HTTP endpoint and the live stream.
+
+        `kind` only labels metrics. Pass "live" from the SSE producer and "interactive"
+        from the HTTP route so Prometheus can tell continuous stream load apart from
+        user-driven load. KEDA scales on the unlabelled lume_pool_inflight gauge, so
+        this label is for observability only.
+        """
         return await self._submit(
-            "v1",
-            _worker_evaluate_v1,
+            kind,
+            _worker_evaluate,
             screen,
             inputs,
             include_image,
             include_distribution,
             include_twiss,
             max_particles,
-            time.time(),
+            frame_index,
+            image_caption,
+            time.time() if x_axis_value is None else x_axis_value,
         )
 
     def shutdown(self) -> None:

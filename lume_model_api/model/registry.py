@@ -49,6 +49,9 @@ class ModelSpec:
     twiss_s_pv: str = "s"
     twiss_a_beta_pv: str = "x.beta"
     twiss_b_beta_pv: str = "y.beta"
+    # Magnet the UI's quad scan sweeps. Per-model rather than global, because FACET uses
+    # different magnet names. The UI reads it from /api/config instead of hard-coding it.
+    scan_pv: str = "QUAD:IN20:525:BCTRL"
 
     @property
     def screen_keys(self) -> list[str]:

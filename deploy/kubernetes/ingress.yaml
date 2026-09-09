@@ -1,6 +1,6 @@
 # One host, two backends. The EPICS-touching endpoints (SSE live stream +
 # machine-snapshot) go to the singleton live producer; everything else (SPA,
-# /api/config, /api/evaluate) goes to the autoscalable eval pool.
+# /api/config, /api/v1/evaluate) goes to the autoscalable eval pool.
 #
 # Both paths share the rewrite-target /$2, so each regex must capture the remainder
 # (after /live-monitor/) in group 2. nginx orders regex locations by descending path

@@ -6,7 +6,7 @@ source making every request history-independent. Backpressure returns 503 when t
 pool is saturated.
 
 One image, `LUME_ROLE`-selected (N1):
-  - `eval` — serves the SPA + `/api/config` + `/api/evaluate`; EPICS-free; scalable.
+  - `eval` — serves the SPA + `/api/config` + `/api/v1/evaluate`; EPICS-free; scalable.
   - `live` — the singleton EPICS reader: runs the broadcast hub and serves
     `/api/live/stream` + `/api/machine-snapshot`.
   - `all`  — both, in one process (default; dev / mock / single-pod).
@@ -37,10 +37,8 @@ from lume_visualizations.fake_epics_ioc import FAKE_INPUT_SPECS
 from .pool import ModelPool, PoolFull
 from .schemas import (
     ConfigResponse,
-    EvaluateRequest,
     EvaluateV1Request,
     EvaluateV1Response,
-    FrameResponse,
     SnapshotResponse,
 )
 from .source import build_config, is_mock
@@ -70,6 +68,10 @@ def _mock_live_inputs(elapsed: float) -> dict[str, float]:
     return inputs
 
 
+def _model_version(app: FastAPI) -> str:
+    return f"{MODEL_NAME} (mock)" if app.state.mock else MODEL_NAME
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.mock = is_mock()
@@ -82,7 +84,12 @@ async def lifespan(app: FastAPI):
     if SERVE_LIVE:
         from .live_hub import LiveHub
 
-        app.state.hub = LiveHub(app.state.pool, lambda elapsed: _read_live_inputs(app, elapsed))
+        app.state.hub = LiveHub(
+            app.state.pool,
+            lambda elapsed: _read_live_inputs(app, elapsed),
+            model=MODEL_NAME,
+            version=_model_version(app),
+        )
     try:
         yield
     finally:
@@ -121,16 +128,6 @@ def metrics() -> Response:
     return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
-@app.post("/api/evaluate", response_model=FrameResponse)
-async def evaluate(req: EvaluateRequest):
-    try:
-        return await app.state.pool.evaluate(req.screen, req.inputs, title_suffix="manual")
-    except PoolFull as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-    except KeyError as exc:
-        raise HTTPException(status_code=400, detail=f"Unknown screen: {exc}") from exc
-
-
 @app.post(
     "/api/v1/evaluate",
     response_model=EvaluateV1Response,
@@ -138,23 +135,33 @@ async def evaluate(req: EvaluateRequest):
     summary="Run the model on a set of inputs and return beam output",
 )
 async def evaluate_v1(req: EvaluateV1Request):
-    """Stateless model evaluation for programmatic clients (notebooks, GUIs).
+    """Stateless model evaluation. The one evaluate endpoint for every caller.
+
+    Used by this app's own web UI, by any other UI, and by programmatic clients such as
+    notebooks and emittance GUIs. There is deliberately no separate UI-private endpoint.
 
     `inputs` is a map of PV name -> engineering-unit control value, overlaid on the
-    model's design baseline — send only the knobs you want to change (`{}` = design
-    machine). `GET /api/config` lists the writable inputs with their ranges/defaults.
+    model's design baseline, so send only the knobs you want to change (`{}` is the
+    design machine). `GET /api/config` lists the writable inputs with their ranges and
+    defaults.
 
-    Scalars are always returned. Set `include_image` / `include_distribution` /
-    `include_twiss` for the heavier outputs; `max_particles` subsamples the
-    distribution. Large arrays are base64-encoded little-endian float32 — decode with
-    e.g. `numpy.frombuffer(base64.b64decode(s), dtype='<f4')` (image is row-major,
-    reshaped to `image.shape`).
+    Scalars are always returned. Set `include_image`, `include_distribution` and
+    `include_twiss` for the heavier outputs, and `max_particles` to subsample the
+    distribution (it defaults to 3000, never the full beam). Large arrays are
+    base64-encoded little-endian float32, so decode with e.g.
+    `numpy.frombuffer(base64.b64decode(s), dtype='<f4')`. The image is row-major,
+    reshaped to `image.shape`.
+
+    Particle positions are in µm and momenta in eV/c, matching the µm-based scalars.
+    Every response states its own units in `distribution.units`, so do not hard-code
+    them.
     """
-    version = f"{MODEL_NAME} (mock)" if app.state.mock else MODEL_NAME
+    version = _model_version(app)
     try:
-        wire = await app.state.pool.evaluate_v1(
+        wire = await app.state.pool.evaluate(
             req.screen,
             req.inputs,
+            kind="interactive",
             include_image=req.include_image,
             include_distribution=req.include_distribution,
             include_twiss=req.include_twiss,

@@ -16,7 +16,7 @@ from typing import Mapping, Optional
 
 import numpy as np
 
-from lume_visualizations.beam_monitor import BeamFrame
+from lume_visualizations.beam_monitor import DEFAULT_MAX_PARTICLES, DIST_UNITS, BeamFrame
 from lume_visualizations.registry import get_spec
 
 _IMG_ROWS = 240
@@ -61,7 +61,6 @@ class MockImageSource:
         x_axis_value: float | datetime = 0.0,
         frame_index: int = 0,
         image_caption: str = "",
-        title_suffix: str = "",
         include_distribution: bool = False,
         max_particles: Optional[int] = None,
     ) -> BeamFrame:
@@ -83,34 +82,32 @@ class MockImageSource:
         if has_image:
             image = self._gaussian_image(sigma_x, sigma_y)
 
-        # Phase-space scatter: positions in µm, momenta in eV/c.
-        x = self._rng.normal(0.0, sigma_x, _N_SCATTER)
-        px = self._rng.normal(0.0, 1.5e4 * (0.5 + knob), _N_SCATTER) + 3.0e3 * (x / max(sigma_x, 1.0))
-        y = self._rng.normal(0.0, sigma_y, _N_SCATTER)
-        py = self._rng.normal(0.0, 1.5e4 * (0.5 + (1.0 - knob)), _N_SCATTER) + 3.0e3 * (y / max(sigma_y, 1.0))
-        z = self._rng.normal(0.0, sigma_z, _N_SCATTER)
-        pz = self._rng.normal(6.0e7, 1.0e5, _N_SCATTER) + 5.0e4 * (z / max(sigma_z, 1.0))
-        scatter = {"x": x, "px": px, "y": y, "py": py, "z": z, "pz": pz}
-
         # Twiss beta functions along s.
         s = np.linspace(0.0, 20.0, 120)
         beta_x = 8.0 + 6.0 * np.sin(0.4 * s + knob) ** 2 + 0.5 * s
         beta_y = 7.0 + 5.0 * np.cos(0.35 * s + knob) ** 2 + 0.4 * s
 
-        # Synthetic 6D phase space (SI-ish) so the v1 distribution path is testable.
+        # One phase-space distribution serving both the UI scatter plot and programmatic
+        # callers, matching ModelImageSource._extract_distribution: positions already in
+        # µm (the sigmas above are µm), momenta in eV/c, weight in C.
         distribution = None
         if include_distribution:
-            n = _N_SCATTER if not max_particles else min(_N_SCATTER, int(max_particles))
+            n = min(_N_SCATTER, int(max_particles)) if max_particles else min(
+                _N_SCATTER, DEFAULT_MAX_PARTICLES
+            )
+            x = self._rng.normal(0.0, sigma_x, n)
+            px = self._rng.normal(0.0, 1.5e4 * (0.5 + knob), n) + 3.0e3 * (x / max(sigma_x, 1.0))
+            y = self._rng.normal(0.0, sigma_y, n)
+            py = self._rng.normal(0.0, 1.5e4 * (0.5 + (1.0 - knob)), n) + 3.0e3 * (
+                y / max(sigma_y, 1.0)
+            )
+            z = self._rng.normal(0.0, sigma_z, n)
+            pz = self._rng.normal(6.0e7, 1.0e5, n) + 5.0e4 * (z / max(sigma_z, 1.0))
             coords = {
-                "x": x[:n] * 1e-6,  # µm -> m
-                "px": px[:n],
-                "y": self._rng.normal(0.0, sigma_y * 1e-6, n),
-                "py": self._rng.normal(0.0, 1.5e4, n),
-                "z": self._rng.normal(0.0, sigma_z * 1e-6, n),
-                "pz": self._rng.normal(6.0e7, 1.0e5, n),
+                "x": x, "px": px, "y": y, "py": py, "z": z, "pz": pz,
                 "weight": np.full(n, 1.0 / n),
             }
-            units = {"x": "m", "y": "m", "z": "m", "px": "eV/c", "py": "eV/c", "pz": "eV/c", "weight": "C"}
+            units = {k: DIST_UNITS.get(k, "") for k in coords}
             distribution = {"n": n, "units": units, "coords": coords}
 
         return BeamFrame(
@@ -125,12 +122,10 @@ class MockImageSource:
             image=image,
             image_message="" if has_image else screen.image_message,
             image_caption=image_caption,
-            scatter=scatter,
             distribution=distribution,
             twiss_s=s,
             twiss_a_beta=beta_x,
             twiss_b_beta=beta_y,
-            title_suffix=title_suffix or "mock",
             frame_index=frame_index,
             timestamp=time.time(),
         )

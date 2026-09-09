@@ -34,11 +34,7 @@ class ConfigResponse(BaseModel):
     screens: list[ScreenInfo]
     inputs: list[InputInfo]
     scalars: list[ScalarInfo]
-
-
-class EvaluateRequest(BaseModel):
-    screen: str
-    inputs: dict[str, float] = {}
+    scan_pv: str  # magnet the quad scan sweeps, per-model (see ModelSpec.scan_pv)
 
 
 class Scalars(BaseModel):
@@ -49,31 +45,16 @@ class Scalars(BaseModel):
     norm_emit_y_um_rad: float
 
 
-class FrameResponse(BaseModel):
-    screen_key: str
-    screen_label: str
-    image_b64: Optional[str] = None
-    image_shape: Optional[list[int]] = None
-    image_message: str = ""
-    image_caption: str = ""
-    scalars: Scalars
-    scatter_b64: Optional[dict[str, str]] = None
-    scatter_units: Optional[dict[str, str]] = None
-    twiss_s: Optional[list[float]] = None
-    twiss_a_beta: Optional[list[float]] = None
-    twiss_b_beta: Optional[list[float]] = None
-    frame_index: int = 0
-    title_suffix: str = ""
-    timestamp: float = 0.0
-
-
 class SnapshotResponse(BaseModel):
     inputs: dict[str, float]
 
 
-# --- Friendly external API (/api/v1/evaluate) -----------------------------------
-# Same PV-name/value input contract as the UI, with a documented, stable schema and
-# opt-in heavy outputs. Large arrays are base64-encoded little-endian float32.
+# --- The evaluate API (/api/v1/evaluate) ----------------------------------------
+# ONE contract for every caller: this web UI, any future UI, and programmatic clients
+# such as notebooks and emittance GUIs. There is deliberately no separate UI-private
+# endpoint, because a second shape would mean every new UI reimplements the unit
+# handling. Large arrays are base64-encoded little-endian float32. Units travel with
+# the data in V1Distribution.units, so no client hard-codes them.
 
 
 class V1Image(BaseModel):
@@ -84,7 +65,7 @@ class V1Image(BaseModel):
 
 class V1Distribution(BaseModel):
     n: int  # particles per coordinate
-    units: dict[str, str]  # coord name -> unit (e.g. {"x": "m", "px": "eV/c"})
+    units: dict[str, str]  # coord name -> unit, e.g. {"x": "µm", "px": "eV/c"}
     coords: dict[str, str]  # coord name -> base64 little-endian float32
 
 
@@ -100,15 +81,20 @@ class EvaluateV1Request(BaseModel):
     include_image: bool = False
     include_distribution: bool = False
     include_twiss: bool = False
-    max_particles: Optional[int] = None  # subsample the distribution if set
+    max_particles: Optional[int] = None  # defaults to DEFAULT_MAX_PARTICLES (3000)
 
 
 class EvaluateV1Response(BaseModel):
     model: str
     version: str
     screen: str
+    screen_label: str  # human-readable screen name, e.g. "OTR4"
     frame_index: int
     timestamp: float
+    # Why an image may be absent, e.g. "No image generated at OTR2 for this model."
+    # Populated even when include_image was false, so a client can explain a null image.
+    image_message: str = ""
+    image_caption: str = ""  # echoed back from the request, for UI captions
     scalars: Scalars  # always returned
     image: Optional[V1Image] = None
     distribution: Optional[V1Distribution] = None

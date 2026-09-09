@@ -21,6 +21,10 @@
             "title": "Scalars",
             "type": "array"
           },
+          "scan_pv": {
+            "title": "Scan Pv",
+            "type": "string"
+          },
           "screens": {
             "items": {
               "$ref": "#/components/schemas/ScreenInfo"
@@ -38,30 +42,10 @@
           "version",
           "screens",
           "inputs",
-          "scalars"
+          "scalars",
+          "scan_pv"
         ],
         "title": "ConfigResponse",
-        "type": "object"
-      },
-      "EvaluateRequest": {
-        "properties": {
-          "inputs": {
-            "additionalProperties": {
-              "type": "number"
-            },
-            "default": {},
-            "title": "Inputs",
-            "type": "object"
-          },
-          "screen": {
-            "title": "Screen",
-            "type": "string"
-          }
-        },
-        "required": [
-          "screen"
-        ],
-        "title": "EvaluateRequest",
         "type": "object"
       },
       "EvaluateV1Request": {
@@ -137,6 +121,16 @@
               }
             ]
           },
+          "image_caption": {
+            "default": "",
+            "title": "Image Caption",
+            "type": "string"
+          },
+          "image_message": {
+            "default": "",
+            "title": "Image Message",
+            "type": "string"
+          },
           "model": {
             "title": "Model",
             "type": "string"
@@ -146,6 +140,10 @@
           },
           "screen": {
             "title": "Screen",
+            "type": "string"
+          },
+          "screen_label": {
+            "title": "Screen Label",
             "type": "string"
           },
           "timestamp": {
@@ -171,153 +169,12 @@
           "model",
           "version",
           "screen",
+          "screen_label",
           "frame_index",
           "timestamp",
           "scalars"
         ],
         "title": "EvaluateV1Response",
-        "type": "object"
-      },
-      "FrameResponse": {
-        "properties": {
-          "frame_index": {
-            "default": 0,
-            "title": "Frame Index",
-            "type": "integer"
-          },
-          "image_b64": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Image B64"
-          },
-          "image_caption": {
-            "default": "",
-            "title": "Image Caption",
-            "type": "string"
-          },
-          "image_message": {
-            "default": "",
-            "title": "Image Message",
-            "type": "string"
-          },
-          "image_shape": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "integer"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Image Shape"
-          },
-          "scalars": {
-            "$ref": "#/components/schemas/Scalars"
-          },
-          "scatter_b64": {
-            "anyOf": [
-              {
-                "additionalProperties": {
-                  "type": "string"
-                },
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Scatter B64"
-          },
-          "scatter_units": {
-            "anyOf": [
-              {
-                "additionalProperties": {
-                  "type": "string"
-                },
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Scatter Units"
-          },
-          "screen_key": {
-            "title": "Screen Key",
-            "type": "string"
-          },
-          "screen_label": {
-            "title": "Screen Label",
-            "type": "string"
-          },
-          "timestamp": {
-            "default": 0.0,
-            "title": "Timestamp",
-            "type": "number"
-          },
-          "title_suffix": {
-            "default": "",
-            "title": "Title Suffix",
-            "type": "string"
-          },
-          "twiss_a_beta": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "number"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Twiss A Beta"
-          },
-          "twiss_b_beta": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "number"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Twiss B Beta"
-          },
-          "twiss_s": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "number"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Twiss S"
-          }
-        },
-        "required": [
-          "screen_key",
-          "screen_label",
-          "scalars"
-        ],
-        "title": "FrameResponse",
         "type": "object"
       },
       "HTTPValidationError": {
@@ -619,44 +476,6 @@
         "summary": "Get Config"
       }
     },
-    "/api/evaluate": {
-      "post": {
-        "operationId": "evaluate_api_evaluate_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/EvaluateRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/FrameResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Evaluate"
-      }
-    },
     "/api/live/stream": {
       "get": {
         "operationId": "live_stream_api_live_stream_get",
@@ -715,7 +534,7 @@
     },
     "/api/v1/evaluate": {
       "post": {
-        "description": "Stateless model evaluation for programmatic clients (notebooks, GUIs).\n\n`inputs` is a map of PV name -> engineering-unit control value, overlaid on the\nmodel's design baseline \u2014 send only the knobs you want to change (`{}` = design\nmachine). `GET /api/config` lists the writable inputs with their ranges/defaults.\n\nScalars are always returned. Set `include_image` / `include_distribution` /\n`include_twiss` for the heavier outputs; `max_particles` subsamples the\ndistribution. Large arrays are base64-encoded little-endian float32 \u2014 decode with\ne.g. `numpy.frombuffer(base64.b64decode(s), dtype='<f4')` (image is row-major,\nreshaped to `image.shape`).",
+        "description": "Stateless model evaluation. The one evaluate endpoint for every caller.\n\nUsed by this app's own web UI, by any other UI, and by programmatic clients such as\nnotebooks and emittance GUIs. There is deliberately no separate UI-private endpoint.\n\n`inputs` is a map of PV name -> engineering-unit control value, overlaid on the\nmodel's design baseline, so send only the knobs you want to change (`{}` is the\ndesign machine). `GET /api/config` lists the writable inputs with their ranges and\ndefaults.\n\nScalars are always returned. Set `include_image`, `include_distribution` and\n`include_twiss` for the heavier outputs, and `max_particles` to subsample the\ndistribution (it defaults to 3000, never the full beam). Large arrays are\nbase64-encoded little-endian float32, so decode with e.g.\n`numpy.frombuffer(base64.b64decode(s), dtype='<f4')`. The image is row-major,\nreshaped to `image.shape`.\n\nParticle positions are in \u00b5m and momenta in eV/c, matching the \u00b5m-based scalars.\nEvery response states its own units in `distribution.units`, so do not hard-code\nthem.",
         "operationId": "evaluate_v1_api_v1_evaluate_post",
         "requestBody": {
           "content": {

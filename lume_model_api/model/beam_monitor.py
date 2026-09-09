@@ -13,14 +13,25 @@ import numpy as np
 from lume_visualizations.config import resolve_lcls_lattice_path
 from lume_visualizations.registry import ModelSpec, get_spec
 
-# Phase-space coordinates exposed for the scatter plot (any vs any). Positions are
-# converted to µm for display; momenta stay in eV/c.
-SCATTER_COORDS = ("x", "px", "y", "py", "z", "pz")
-SCATTER_DISPLAY_UNITS = {
+# Phase-space distribution surfaced by the API and plotted by the UI. Keys verified
+# against beamphysics.ParticleGroup, the object the model returns. Missing keys are
+# skipped.
+#
+# Positions are converted from the model's native metres to µm, so the whole API speaks
+# µm consistently: the scalars are already xrms_um and norm_emit_x_um_rad. Momenta stay
+# in eV/c and weight (charge) in C, both already conventional. Every response carries
+# these units alongside the data, so no client hard-codes them.
+DIST_COORDS = ("x", "px", "y", "py", "z", "pz")
+DIST_UNITS = {
     "x": "µm", "y": "µm", "z": "µm",
     "px": "eV/c", "py": "eV/c", "pz": "eV/c",
+    "weight": "C",
 }
-_SCATTER_POSITION_COORDS = ("x", "y", "z")
+_POSITION_COORDS = ("x", "y", "z")
+_M_TO_UM = 1e6
+# Cap on particles returned when the caller does not ask for a specific number. Without
+# a default an omitted max_particles would ship the full beam.
+DEFAULT_MAX_PARTICLES = 3000
 
 # Screen images are a 2D histogram of the tracked macroparticles (~1000), so at the
 # screen 17.06 um pixel resolution they are sparse single-count noise. Convolving with a
@@ -62,16 +73,13 @@ class BeamFrame:
     image: Optional[np.ndarray] = None
     image_message: str = ""
     image_caption: str = ""
-    # Phase-space scatter coordinates in display units (see SCATTER_DISPLAY_UNITS):
-    # {coord: 1D array}. Coords absent on the beam object are omitted.
-    scatter: Optional[dict[str, np.ndarray]] = None
-    # Full phase-space distribution for the programmatic API (opt-in). Shape:
-    # {"n": int, "units": {coord: unit}, "coords": {coord: np.ndarray}}.
+    # Phase-space distribution, serving both the UI scatter plot and the programmatic
+    # API. Shape: {"n": int, "units": {coord: unit}, "coords": {coord: np.ndarray}},
+    # positions in µm (see DIST_UNITS). Coords absent on the beam object are omitted.
     distribution: Optional[dict] = None
     twiss_s: Optional[np.ndarray] = None
     twiss_a_beta: Optional[np.ndarray] = None
     twiss_b_beta: Optional[np.ndarray] = None
-    title_suffix: str = ""
     frame_index: int = 0
     timestamp: float = field(default_factory=time.time)
 
@@ -87,7 +95,6 @@ class ModelImageSource:
     def __init__(
         self,
         model_name: str,
-        max_scatter_points: int = 3000,
         reset_values: Optional[dict[str, object]] = None,
     ):
         self.model_name = model_name
@@ -96,7 +103,6 @@ class ModelImageSource:
         self.lattice_path = resolve_lcls_lattice_path()
         os.environ["LCLS_LATTICE"] = self.lattice_path
         self.model = self.spec.make_model()
-        self.max_scatter_points = max_scatter_points
         self.reset_values = reset_values or {}
         self.screens = self.spec.screens
         self.baseline = dict(self.spec.baseline)
@@ -134,7 +140,6 @@ class ModelImageSource:
         x_axis_value: float | datetime = 0.0,
         frame_index: int = 0,
         image_caption: str = "",
-        title_suffix: str = "",
         include_distribution: bool = False,
         max_particles: Optional[int] = None,
     ) -> BeamFrame:
@@ -171,7 +176,6 @@ class ModelImageSource:
         xrms_um, yrms_um, sigma_z_um, emit_x_um, emit_y_um = self._extract_scalars(
             screen, result, beam
         )
-        scatter = self._extract_scatter(beam)
         distribution = (
             self._extract_distribution(beam, max_particles) if include_distribution else None
         )
@@ -192,12 +196,10 @@ class ModelImageSource:
             image=image,
             image_message=screen.image_message if image is None else "",
             image_caption=image_caption,
-            scatter=scatter,
             distribution=distribution,
             twiss_s=None if twiss_s is None else np.asarray(twiss_s, dtype=float),
             twiss_a_beta=None if twiss_a_beta is None else np.asarray(twiss_a_beta, dtype=float),
             twiss_b_beta=None if twiss_b_beta is None else np.asarray(twiss_b_beta, dtype=float),
-            title_suffix=title_suffix,
             frame_index=frame_index,
             timestamp=time.time(),
         )
@@ -224,53 +226,35 @@ class ModelImageSource:
             float(beam["norm_emit_y"]) * 1e6,
         )
 
-    def _extract_scatter(self, beam) -> Optional[dict[str, np.ndarray]]:
-        if beam is None:
-            return None
-        coords: dict[str, np.ndarray] = {}
-        for key in SCATTER_COORDS:
-            try:
-                coords[key] = np.asarray(beam[key], dtype=float)
-            except Exception:  # coordinate not present on this beam object
-                continue
-        if not coords:
-            return None
-        n = len(next(iter(coords.values())))
-        if n > self.max_scatter_points:
-            indices = np.linspace(0, n - 1, self.max_scatter_points, dtype=int)
-            coords = {k: v[indices] for k, v in coords.items()}
-        # Positions: metres -> µm for display; momenta already in eV/c.
-        for key in _SCATTER_POSITION_COORDS:
-            if key in coords:
-                coords[key] = coords[key] * 1e6
-        return coords
-
-    # Keys/units for the phase-space distribution surfaced by the v1 API. Verified
-    # against beamphysics.ParticleGroup (the object the model returns): positions in
-    # metres, momenta in eV/c, weight (charge) in Coulombs. Missing keys are skipped.
-    _DIST_COORDS = ("x", "px", "y", "py", "z", "pz")
-    _DIST_UNITS = {
-        "x": "m", "y": "m", "z": "m",
-        "px": "eV/c", "py": "eV/c", "pz": "eV/c",
-        "weight": "C",
-    }
-
     def _extract_distribution(self, beam, max_particles: Optional[int]) -> Optional[dict]:
+        """The phase-space distribution, in the units advertised by DIST_UNITS.
+
+        Serves both the UI scatter plot and programmatic callers, so it is the only
+        particle path. Subsamples to `max_particles`, defaulting to
+        DEFAULT_MAX_PARTICLES rather than unbounded, since an omitted value must not
+        ship the whole beam.
+        """
         if beam is None:
             return None
         coords: dict[str, np.ndarray] = {}
-        for key in (*self._DIST_COORDS, "weight"):
+        for key in (*DIST_COORDS, "weight"):
             try:
                 coords[key] = np.asarray(beam[key], dtype=float)
             except Exception:  # coordinate not present on this beam object
                 continue
         if not coords:
             return None
+        cap = int(max_particles) if max_particles else DEFAULT_MAX_PARTICLES
         n = len(next(iter(coords.values())))
-        if max_particles and n > max_particles:
-            indices = np.linspace(0, n - 1, max_particles, dtype=int)
+        if n > cap:
+            indices = np.linspace(0, n - 1, cap, dtype=int)
             coords = {k: v[indices] for k, v in coords.items()}
-            n = int(max_particles)
-        units = {k: self._DIST_UNITS.get(k, "") for k in coords}
+            n = cap
+        # Positions: the model works in metres, the whole API speaks µm. Momenta are
+        # already eV/c and weight is already C, so only positions are scaled.
+        for key in _POSITION_COORDS:
+            if key in coords:
+                coords[key] = coords[key] * _M_TO_UM
+        units = {k: DIST_UNITS.get(k, "") for k in coords}
         return {"n": int(n), "units": units, "coords": coords}
     

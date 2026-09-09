@@ -1,9 +1,17 @@
-"""Guard the external /api/v1 contract.
+"""Guard the /api/v1 contract.
 
-`/api/v1/*` is the programmatic surface that notebooks, emittance GUIs and any other HTTP
-client call. The CI drift check only proves that webapp/openapi.json was regenerated, so it
-passes happily when a field is renamed. These expectations are written out by hand so a
-rename or removal fails loudly instead.
+`/api/v1/*` is the ONE evaluate contract: this app's own web UI, any future UI, and every
+programmatic client such as notebooks and emittance GUIs all call it. That makes it more
+load-bearing than when it served external callers only, because a breaking change now takes
+the dashboard down too.
+
+The CI drift check only proves that webapp/openapi.json was regenerated, so it passes
+happily when a field is renamed. These expectations are written out by hand so a rename or
+removal fails loudly instead.
+
+The shape was reshaped once, in the commit that merged the old UI-private /api/evaluate into
+this endpoint, while it still had no consumers. From that commit on it is frozen: additive
+only.
 
 Field names only, deliberately. Asserting JSON types too would make this a third copy of
 webapp/backend/schemas.py for very little extra protection.
@@ -38,8 +46,8 @@ V1_SCHEMAS: dict[str, tuple[set[str], set[str]]] = {
         {"inputs", "include_image", "include_distribution", "include_twiss", "max_particles"},
     ),
     "EvaluateV1Response": (
-        {"model", "version", "screen", "frame_index", "timestamp", "scalars"},
-        {"image", "distribution", "twiss"},
+        {"model", "version", "screen", "screen_label", "frame_index", "timestamp", "scalars"},
+        {"image", "distribution", "twiss", "image_message", "image_caption"},
     ),
     "V1Image": ({"shape", "data_b64"}, {"dtype"}),
     "V1Distribution": ({"n", "units", "coords"}, set()),

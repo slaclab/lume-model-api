@@ -17,6 +17,8 @@ name: contract
 
 on:
   pull_request:
+  push:
+    branches: [main] # otherwise a direct push to main runs no checks at all
   workflow_dispatch:
 
 jobs:
@@ -68,3 +70,12 @@ jobs:
             echo "::error::Generated contract artifacts are out of date. Run 'python webapp/scripts/dump_openapi.py' then 'cd webapp/frontend && npm run gen:api', and commit webapp/openapi.json plus webapp/frontend/src/api/schema.d.ts."
             exit 1
           fi
+
+      # Deliberately last. This is what actually enforces "a backend rename is a frontend
+      # compile error", but if someone also forgot to regenerate, the stale-artifact message
+      # above is far more useful than an opaque tsc error, so let that one fire first.
+      # `npm ci` already ran above. Writes only to gitignored dist/ and node_modules/.tmp/,
+      # so it cannot disturb the check before it.
+      - name: Typecheck the frontend against the regenerated types
+        working-directory: webapp/frontend
+        run: npm run build

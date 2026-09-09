@@ -1,8 +1,9 @@
 # LUME Live Stream Monitor — webapp (M1)
 
 React/Vite/TS UI + FastAPI backend that replaces the marimo live-stream monitor.
-Stateless `POST /api/evaluate` for the Interactive tab; read-only EPICS → `/evaluate`
-→ **SSE** for the Live tab. One URL for all users (no `wN`, no allocator, no WS-relay).
+Stateless `POST /api/v1/evaluate` for the Interactive tab, and read-only EPICS →
+`/api/v1/evaluate` → **SSE** for the Live tab. One URL for all users (no `wN`, no
+allocator, no WS-relay).
 
 M1 is single-user (one model instance, one asyncio lock). Concurrency/scale is M2+.
 
@@ -17,10 +18,43 @@ M1 is single-user (one model instance, one asyncio lock). Concurrency/scale is M
   types" below before editing `backend/schemas.py`.
 
 ## Endpoints
-- `GET  /api/config` — screens, writable inputs (+ranges/defaults), scalars, version.
-- `POST /api/evaluate` — `{screen, inputs}` → beam frame (image, scatter, scalars, Twiss).
+- `GET  /api/config` — screens, writable inputs (+ranges/defaults), scalars, scan magnet.
+- `POST /api/v1/evaluate` — `{screen, inputs, include_*}` → beam frame. **The one evaluate
+  endpoint**, see below.
 - `GET  /api/machine-snapshot` — current input PVs (read-only) → dict.
 - `GET  /api/live/stream?screen&period` — SSE frame stream (read-only EPICS driver).
+
+## One evaluate endpoint for every caller
+
+`POST /api/v1/evaluate` is called by this app's own web UI, by any other UI, and by
+programmatic clients such as notebooks and emittance GUIs. There is deliberately **no**
+UI-private evaluate endpoint. A second shape would mean every new UI reimplemented the
+unit handling, which is the duplication this design removes. The UI is just a client that
+opts into all the outputs.
+
+Conventions worth knowing before you write a client:
+
+- **Units travel with the data.** Particle positions are µm and momenta eV/c, matching the
+  µm-based scalars (`xrms_um`, `norm_emit_x_um_rad`). Every response states its own units in
+  `distribution.units`, so read them rather than hard-coding. The model works internally in
+  metres and the conversion happens once, in `_extract_distribution`.
+- **Heavy outputs are opt-in.** Scalars always come back. Set `include_image`,
+  `include_distribution` and `include_twiss` for the rest. Opt-in fields are present and
+  `null` when not requested, never absent, which is what lets the frontend type them as
+  `Required<>`.
+- **`max_particles` defaults to 3000, never the whole beam.** An omitted value gets the cap,
+  not a multi-megabyte payload.
+- **`distribution.coords` includes `weight`** (particle charge, in C) for physics callers.
+  It is not a phase-space axis, so the UI strips it in `unpackFrame` before the scatter
+  plot. That costs the live stream roughly 17% extra payload for data the UI discards.
+  Accepted deliberately: a distribution without weights is incomplete for the physics
+  callers this endpoint serves, and an `include_weight` flag would add API surface to save
+  something we have not measured as a problem. If it ever bites, lower `max_particles` on
+  the live path rather than adding a flag.
+
+The shape was reshaped once, when the old UI-private `/api/evaluate` was merged into it,
+while it still had no consumers. From that commit on it is frozen and additive only, which
+`tests/test_api_contract.py` enforces.
 
 ## Generated types, after changing `backend/schemas.py`
 
@@ -46,9 +80,10 @@ Two couplings are NOT covered by the generated types:
 - **The SSE stream.** `GET /api/live/stream` has no `response_model`, so OpenAPI says nothing
   about it. The event names `frame` and `error`, and the error payload `{"message": ...}`, are
   matched by hand in `frontend/src/api/client.ts`. What keeps the frontend's
-  `Required<FrameResponse>` honest on that path is that `frame_to_wire()` in
-  `backend/serialize.py` always emits every key. Keep it unconditional.
-- **`/api/v1/*`**, the external contract for notebooks and GUIs.
+  `Required<EvaluateV1Response>` honest on that path is that `frame_to_wire()` in
+  `backend/serialize.py` always emits every key, which `tests/test_wire_shape.py` enforces
+  across every screen. Keep it unconditional.
+- **`/api/v1/*`**, the contract for the UI and for notebooks and GUIs alike.
   `tests/test_api_contract.py` asserts its field names by hand, because a regenerated snapshot
   would otherwise hide a breaking rename. Adding an optional field is fine. Renaming or
   removing one needs a `/api/v2` instead.

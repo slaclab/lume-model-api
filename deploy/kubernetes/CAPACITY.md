@@ -34,7 +34,7 @@ count `K` per pod, and estimate how many concurrent users we can serve.
 ## How it was measured
 
 - Port-forwarded straight to the running pod (bypassing the ingress) and timed
-  `POST /api/evaluate` — sequential for clean `L`, then small concurrent bursts.
+  `POST /api/v1/evaluate` — sequential for clean `L`, then small concurrent bursts.
 - For the K/threads A/B: one throwaway Deployment (`K=4, threads=1`, 4-core limit)
   compared against prod (`K=2, threads=2`, same 4 cores). Throwaway pod deleted after.
 - Idle pod memory ≈ 2 GiB total with `K=2` (so **CPU, not memory, is the constraint**;

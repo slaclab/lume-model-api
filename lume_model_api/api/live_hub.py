@@ -30,9 +30,15 @@ class _Screen:
 
 
 class LiveHub:
-    def __init__(self, pool, read_inputs: ReadInputs) -> None:
+    def __init__(self, pool, read_inputs: ReadInputs, model: str, version: str) -> None:
         self._pool = pool
         self._read_inputs = read_inputs
+        # The SSE stream bypasses the HTTP endpoint, which is what normally attaches these
+        # two. Without them a streamed frame would not be a complete EvaluateV1Response,
+        # and the frontend types it as Required<EvaluateV1Response>. Attached here, once
+        # per frame, rather than per subscriber.
+        self._model = model
+        self._version = version
         self._screens: dict[str, _Screen] = {}
 
     def subscribe(self, screen: str) -> asyncio.Queue:
@@ -70,9 +76,20 @@ class LiveHub:
             elapsed = time.monotonic() - ch.started
             try:
                 inputs = await self._read_inputs(elapsed)
+                # Viewers render all four panels, so the live stream asks for every
+                # output. kind="live" keeps continuous stream load separable from
+                # user-driven load in the metrics.
                 wire = await self._pool.evaluate(
-                    screen, inputs, frame_index=ch.index, title_suffix="live"
+                    screen,
+                    inputs,
+                    kind="live",
+                    include_image=True,
+                    include_distribution=True,
+                    include_twiss=True,
+                    frame_index=ch.index,
                 )
+                wire["model"] = self._model
+                wire["version"] = self._version
                 ch.latest = wire
                 ch.index += 1
                 self._broadcast(ch, {"event": "frame", "data": wire})
