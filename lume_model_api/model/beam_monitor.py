@@ -10,8 +10,8 @@ from typing import Mapping, Optional
 
 import numpy as np
 
-from lume_visualizations.config import resolve_lcls_lattice_path
-from lume_visualizations.registry import ModelSpec, get_spec
+from lume_model_api.model.config import resolve_lcls_lattice_path
+from lume_model_api.model.registry import ModelSpec, get_spec
 
 # Phase-space distribution surfaced by the API and plotted by the UI. Keys verified
 # against beamphysics.ParticleGroup, the object the model returns. Missing keys are

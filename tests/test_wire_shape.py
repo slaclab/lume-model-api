@@ -5,10 +5,14 @@ live stream does not. `live_hub` hands the serializer's dict to `json.dumps` in
 `main.py live_stream` with no model in the path, so whatever keys the dict happens to have
 are exactly what reaches the browser.
 
-The frontend types that payload as `Required<EvaluateV1Response>` in `api/client.ts`, which
-asserts every key is always present. Opt-in outputs are `None` when not requested, never
-absent. This test is what makes that assertion true. Without it the guarantee is only a
-comment in `serialize.py`.
+Clients therefore generate their stream types from `EvaluateV1Response` and treat every key as
+always present, which is the only workable assumption when nothing validates the payload. Opt-in
+outputs are `None` when not requested, never absent. This test is what makes that assumption
+true. Without it the guarantee is only a comment in `serialize.py`.
+
+That matters more now than when the UI lived in this repo. A client in another repo cannot see
+a change here until it refetches the schema, and a key that goes missing produces no schema
+change at all, so there would be nothing to refetch.
 
 Parametrized over every screen on purpose. OTR2 has no image while OTR3 and OTR4 do, so a
 key made conditional on image data would pass on OTR3 and fail only on OTR2. Testing one
@@ -19,17 +23,14 @@ Runs on the bare CI setup: no torch, no scipy, no EPICS, no LCLS_LATTICE.
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 import pytest
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))  # `webapp` is importable only from the repo root
-
-from webapp.backend.mock_source import MockImageSource  # noqa: E402
-from webapp.backend.schemas import EvaluateV1Response  # noqa: E402
-from webapp.backend.serialize import frame_to_wire  # noqa: E402
+from lume_model_api.api import live_hub
+from lume_model_api.api.mock_source import MockImageSource
+from lume_model_api.api.schemas import EvaluateV1Response
+from lume_model_api.api.serialize import frame_to_wire
 
 # `model` and `version` are attached by the endpoint, not the serializer.
 ENDPOINT_ADDED = {"model", "version"}
@@ -39,10 +40,11 @@ SOURCE = MockImageSource()
 
 WHY = (
     "\n\nThe SSE live stream json.dumps this dict without validating it against "
-    "EvaluateV1Response,\nso a missing key reaches the browser genuinely absent. The "
-    "frontend types it as\nRequired<EvaluateV1Response> in webapp/frontend/src/api/"
-    "client.ts, so there is no type\nerror to catch it. Keep frame_to_wire unconditional: "
-    "opt-in outputs must be present and\nNone when not requested, never omitted."
+    "EvaluateV1Response,\nso a missing key reaches the client genuinely absent, and clients "
+    "type the stream as\nfully populated because nothing on that path can tell them "
+    "otherwise. Dropping a key is\nalso invisible in openapi.json, so no consumer can detect "
+    "it by refetching the schema.\nKeep frame_to_wire unconditional: opt-in outputs must be "
+    "present and None when not\nrequested, never omitted."
 )
 
 
@@ -70,20 +72,22 @@ def test_endpoint_added_fields_are_exactly_what_live_hub_attaches() -> None:
 
     The HTTP endpoint does it in main.evaluate_v1. The SSE stream bypasses the endpoint
     entirely, so LiveHub._run has to do it too, or a streamed frame is not a complete
-    EvaluateV1Response even though the frontend types it as Required<EvaluateV1Response>.
-    This pins the set so a newly added endpoint-attached field cannot be forgotten on the
-    live path.
+    EvaluateV1Response even though clients type it as one. This pins the set so a newly added
+    endpoint-attached field cannot be forgotten on the live path.
+
+    Reads the module through its own __file__ rather than a path relative to this test, so it
+    does not care where the package is installed.
     """
-    src = (Path(__file__).resolve().parents[1] / "webapp/backend/live_hub.py").read_text()
+    src = Path(live_hub.__file__).read_text()
     for name in sorted(ENDPOINT_ADDED):
         assert f'wire["{name}"]' in src, (
-            f"LiveHub does not attach {name!r}, so SSE frames are missing it while the "
-            "frontend's Required<EvaluateV1Response> claims it is present."
+            f"LiveHub does not attach {name!r}, so SSE frames are missing it while every "
+            "client's generated type claims it is present."
         )
 
 
 def test_opt_in_outputs_are_none_not_absent() -> None:
-    """The distinction the frontend's Required<> depends on."""
+    """The distinction every generated client type depends on."""
     frame = SOURCE.snapshot("OTR4")
     wire = frame_to_wire(frame)
     for key in ("image", "distribution", "twiss"):

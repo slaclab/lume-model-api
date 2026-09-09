@@ -13,6 +13,10 @@ resources:
 # it needs KEDA installed + site-specific values. Apply it separately once ready.
 
 # Pin the image tag for a reproducible test. Bump newTag when you push a new image.
+# NOTE: no tag exists under the lume-model-api name yet. The image was renamed with the
+# repo split, and nothing in CI builds it, so build and push one before applying this.
+# The object names below stay lume-monitor-* on purpose: they identify the running
+# production Deployments and Services, and renaming them would orphan the live service.
 images:
-  - name: ghcr.io/slaclab/lume-monitor
+  - name: ghcr.io/slaclab/lume-model-api
     newTag: n8

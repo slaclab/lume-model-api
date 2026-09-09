@@ -1,7 +1,7 @@
-"""Synthetic beam source for fast frontend iteration (LUME_MOCK=1).
+"""Synthetic beam source for fast UI iteration and for CI (LUME_MOCK=1).
 
 Produces ``BeamFrame`` objects with the same shape as
-``lume_visualizations.beam_monitor.ModelImageSource.snapshot`` but with no torch /
+``lume_model_api.model.beam_monitor.ModelImageSource.snapshot`` but with no torch /
 virtual_accelerator / Bmad dependency, so the whole UI can be developed and tested
 in the plain ``.venv``. Outputs respond to a couple of input knobs so slider changes
 are visibly reflected.
@@ -16,8 +16,8 @@ from typing import Mapping, Optional
 
 import numpy as np
 
-from lume_visualizations.beam_monitor import DEFAULT_MAX_PARTICLES, DIST_UNITS, BeamFrame
-from lume_visualizations.registry import get_spec
+from lume_model_api.model.beam_monitor import DEFAULT_MAX_PARTICLES, DIST_UNITS, BeamFrame
+from lume_model_api.model.registry import get_spec
 
 _IMG_ROWS = 240
 _IMG_COLS = 320

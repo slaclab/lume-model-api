@@ -1,13 +1,13 @@
 deploy/kubernetes/configmap-epics-real.yaml
+input_beam.h5
+# A UI repo's build, copied in to be served at "/". Never committed here: this repo ships no
+# UI of its own, and the API-only image leaves the mount inactive.
+lume_model_api/static/
 # Byte-compiled / optimized / DLL files
 **/pycache__/
 __pycache__/
 *.py[cod]
 *$py.class
-
-# Node / frontend build
-node_modules/
-**/node_modules/
 
 # macOS
 .DS_Store

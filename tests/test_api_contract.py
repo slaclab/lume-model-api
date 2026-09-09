@@ -5,16 +5,16 @@ programmatic client such as notebooks and emittance GUIs all call it. That makes
 load-bearing than when it served external callers only, because a breaking change now takes
 the dashboard down too.
 
-The CI drift check only proves that webapp/openapi.json was regenerated, so it passes
-happily when a field is renamed. These expectations are written out by hand so a rename or
-removal fails loudly instead.
+The CI drift check only proves that openapi.json was regenerated, so it passes happily when a
+field is renamed. These expectations are written out by hand so a rename or removal fails
+loudly instead.
 
 The shape was reshaped once, in the commit that merged the old UI-private /api/evaluate into
 this endpoint, while it still had no consumers. From that commit on it is frozen: additive
 only.
 
 Field names only, deliberately. Asserting JSON types too would make this a third copy of
-webapp/backend/schemas.py for very little extra protection.
+lume_model_api/api/schemas.py for very little extra protection.
 
 Reads app.openapi() directly rather than the committed snapshot, so it needs no TestClient,
 no lifespan and no model. Nothing here loads torch, pytao or EPICS.
@@ -22,18 +22,12 @@ no lifespan and no model. Nothing here loads torch, pytao or EPICS.
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
-
 import pytest
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))  # `webapp` is importable only from the repo root
-
-from webapp.backend.main import app  # noqa: E402
+from lume_model_api.api.main import app
 
 BREAKING = (
-    "\n\n/api/v1/* is the EXTERNAL contract. Notebooks and GUIs outside this repo depend "
+    "\n\n/api/v1/* is the EXTERNAL contract. UIs, notebooks and GUIs in other repos depend "
     "on it.\nAdding a new optional field is fine: update the expectation in this test.\n"
     "Renaming or removing a field, or making an optional field required, breaks those "
     "callers.\nAdd /api/v2 instead of changing v1 in place."

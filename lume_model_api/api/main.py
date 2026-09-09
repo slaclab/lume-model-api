@@ -1,15 +1,19 @@
-"""FastAPI backend for the LUME live-stream monitor.
+"""FastAPI app for the LUME model API.
 
 Stateless HTTP `evaluate` + a read-only SSE live view. Evaluates run on a pool of
-K subprocess model instances — K in parallel, no lock — with baseline-merge in the
+K subprocess model instances, K in parallel with no lock, with baseline-merge in the
 source making every request history-independent. Backpressure returns 503 when the
 pool is saturated.
 
-One image, `LUME_ROLE`-selected (N1):
-  - `eval` — serves the SPA + `/api/config` + `/api/v1/evaluate`; EPICS-free; scalable.
-  - `live` — the singleton EPICS reader: runs the broadcast hub and serves
+One image, `LUME_ROLE`-selected:
+  - `eval` serves `/api/config` + `/api/v1/evaluate`. EPICS-free, so it scales freely.
+  - `live` is the singleton EPICS reader: runs the broadcast hub and serves
     `/api/live/stream` + `/api/machine-snapshot`.
-  - `all`  — both, in one process (default; dev / mock / single-pod).
+  - `all`  both, in one process (default, for dev / mock / single-pod).
+
+Ships no UI. A UI supplied via `LUME_STATIC_DIR` or baked into `lume_model_api/static/`
+is served at "/" by whichever role is running, otherwise "/" is a 404. See the mount at
+the bottom of this file.
 """
 
 from __future__ import annotations
@@ -31,8 +35,8 @@ from fastapi.staticfiles import StaticFiles
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from sse_starlette.sse import EventSourceResponse
 
-from lume_visualizations.config import EPICS_INPUT_PVS, MANUAL_INPUT_PVS
-from lume_visualizations.fake_epics_ioc import FAKE_INPUT_SPECS
+from lume_model_api.model.config import EPICS_INPUT_PVS, MANUAL_INPUT_PVS
+from lume_model_api.model.fake_epics_ioc import FAKE_INPUT_SPECS
 
 from .pool import ModelPool, PoolFull
 from .schemas import (
@@ -111,7 +115,7 @@ async def _read_live_inputs(app: FastAPI, elapsed: float) -> dict[str, float]:
     if app.state.mock:
         return _mock_live_inputs(elapsed)
     if app.state.provider is None:
-        from lume_visualizations.epics_controls import EpicsInputProvider
+        from lume_model_api.model.epics_controls import EpicsInputProvider
 
         app.state.provider = EpicsInputProvider()
     return await asyncio.to_thread(app.state.provider.read_inputs, EPICS_INPUT_PVS)
@@ -187,7 +191,7 @@ async def machine_snapshot() -> SnapshotResponse:
         return SnapshotResponse(inputs=inputs)
 
     if app.state.provider is None:
-        from lume_visualizations.epics_controls import EpicsInputProvider
+        from lume_model_api.model.epics_controls import EpicsInputProvider
 
         app.state.provider = EpicsInputProvider()
     values = await asyncio.to_thread(app.state.provider.read_inputs, EPICS_INPUT_PVS)
@@ -215,11 +219,15 @@ async def live_stream(screen: str = "OTR4"):
     return EventSourceResponse(event_generator())
 
 
-# Serve the built frontend (production image). In dev, Vite serves the UI and
-# proxies /api here, so dist/ need not exist.
-_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
-_STATIC = Path(__file__).resolve().parent / "static"
-for _candidate in (_STATIC, _DIST):
-    if _candidate.is_dir():
-        app.mount("/", StaticFiles(directory=str(_candidate), html=True), name="static")
-        break
+# Optionally serve a single-page app at "/". This service ships no UI of its own: the image
+# is API-only and this mount stays inactive unless someone supplies a build. Two ways to do
+# that, both used by UI repos rather than by this one:
+#   - bake it in, by copying a dist/ into lume_model_api/static/ in a derived image
+#   - mount it at runtime, by pointing LUME_STATIC_DIR at any directory
+# When neither exists the app is a pure API and "/" returns 404, which is why the k8s probes
+# target /api/config instead.
+_STATIC = Path(
+    os.environ.get("LUME_STATIC_DIR") or Path(__file__).resolve().parent.parent / "static"
+)
+if _STATIC.is_dir():
+    app.mount("/", StaticFiles(directory=str(_STATIC), html=True), name="static")

@@ -10,8 +10,8 @@ from __future__ import annotations
 
 import os
 
-from lume_visualizations.fake_epics_ioc import FAKE_INPUT_SPECS
-from lume_visualizations.registry import get_spec
+from lume_model_api.model.fake_epics_ioc import FAKE_INPUT_SPECS
+from lume_model_api.model.registry import get_spec
 
 from .schemas import ConfigResponse, InputInfo, ScreenInfo, SCALAR_INFO
 
@@ -27,7 +27,7 @@ def get_source(model_name: str = "cu_hxr_staged", mock: bool | None = None):
 
         return MockImageSource(model_name)
 
-    from lume_visualizations.beam_monitor import ModelImageSource
+    from lume_model_api.model.beam_monitor import ModelImageSource
 
     return ModelImageSource(model_name=model_name, reset_values={})
 

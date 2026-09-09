@@ -1,17 +1,20 @@
-# Protects the two contracts around webapp/backend.
+# Protects the two contracts this API owes its consumers.
 #
-#   drift    The frontend types in webapp/frontend/src/api/schema.d.ts are generated from
-#            webapp/openapi.json, which is generated from the app. Both are committed, so
-#            they go stale if someone edits a route or webapp/backend/schemas.py without
-#            regenerating. Stale types mean a renamed field stops being a compile error.
+#   drift    openapi.json is committed, and UI repos fetch it at a pinned ref to generate
+#            their client types. It goes stale if someone edits a route or
+#            lume_model_api/api/schemas.py without regenerating, and a stale schema means a
+#            renamed field stops being a compile error in every downstream repo.
 #
-#   contract /api/v1/* is called by notebooks and GUIs outside this repo. The drift check
+#   contract /api/v1/* is called by UIs, notebooks and GUIs in other repos. The drift check
 #            passes happily when a v1 field is renamed, so tests/test_api_contract.py
 #            asserts the v1 field names by hand.
 #
-# No model needed. Importing webapp.backend.main pulls in caproto and numpy only, because
+# No model needed. Importing lume_model_api.api.main pulls in caproto and numpy only, because
 # the model is built inside ModelPool worker subprocesses and app.openapi() never starts
 # them. So no torch, no pytao, no Bmad lattice and no EPICS.
+#
+# This guards the producer side only. Whether a consumer has picked up a schema change is
+# enforced in that consumer's own CI, against the ref it pins.
 
 name: contract
 
@@ -32,53 +35,31 @@ jobs:
 
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
-          python-version: '3.12' # matches ARG PYTHON_VERSION in webapp/Dockerfile
+          python-version: '3.12' # matches ARG PYTHON_VERSION in the Dockerfile
 
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: '20' # matches the node image in webapp/Dockerfile stage 1
-
-      # The runtime dependency list lives in webapp/Dockerfile (the pip install near the
-      # end of stage 2). This is a deliberate subset of it, just enough to import the app.
-      # fastapi and pydantic are pinned because they generate the JSON schema, so an
-      # unpinned upgrade would fail the drift check on unrelated pull requests. Bump these
-      # on purpose, regenerate, and commit.
+      # The base install comes from pyproject.toml. fastapi and pydantic are pinned on top
+      # because they generate the JSON schema, so an unpinned upgrade would fail the drift
+      # check on unrelated pull requests. Bump these on purpose, regenerate, and commit.
+      # The [epics] extra is deliberately omitted: pyepics is imported lazily by the live
+      # role only, so CI never needs to build it.
       - name: Install
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e . \
+          python -m pip install -e ".[dev]" \
             fastapi==0.141.1 \
-            pydantic==2.13.4 \
-            sse-starlette \
-            prometheus-client \
-            pytest
+            pydantic==2.13.4
 
       - name: External /api/v1 contract
         run: pytest -q
 
       - name: Regenerate the OpenAPI schema
-        run: python webapp/scripts/dump_openapi.py
+        run: python scripts/dump_openapi.py
 
-      - name: Regenerate the frontend types
-        working-directory: webapp/frontend
-        run: |
-          npm ci
-          npm run gen:api
-
-      - name: Fail if a generated artifact is stale
+      - name: Fail if openapi.json is out of date
         run: |
           if [ -n "$(git status --porcelain)" ]; then
             git status --short
             git diff
-            echo "::error::Generated contract artifacts are out of date. Run 'python webapp/scripts/dump_openapi.py' then 'cd webapp/frontend && npm run gen:api', and commit webapp/openapi.json plus webapp/frontend/src/api/schema.d.ts."
+            echo "::error::openapi.json is stale. Run 'python scripts/dump_openapi.py' and commit the result. Consumers generate their client types from this file."
             exit 1
           fi
-
-      # Deliberately last. This is what actually enforces "a backend rename is a frontend
-      # compile error", but if someone also forgot to regenerate, the stale-artifact message
-      # above is far more useful than an opaque tsc error, so let that one fire first.
-      # `npm ci` already ran above. Writes only to gitignored dist/ and node_modules/.tmp/,
-      # so it cannot disturb the check before it.
-      - name: Typecheck the frontend against the regenerated types
-        working-directory: webapp/frontend
-        run: npm run build

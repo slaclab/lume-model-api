@@ -9,7 +9,7 @@ from dataclasses import dataclass
 
 from caproto.server import PVGroup, pvproperty, run
 
-from lume_visualizations.config import EPICS_INPUT_PVS
+from lume_model_api.model.config import EPICS_INPUT_PVS
 
 
 DEFAULT_SERVER_INTERFACES = ("127.0.0.1",)

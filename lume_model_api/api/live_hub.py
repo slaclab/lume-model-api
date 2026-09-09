@@ -35,8 +35,8 @@ class LiveHub:
         self._read_inputs = read_inputs
         # The SSE stream bypasses the HTTP endpoint, which is what normally attaches these
         # two. Without them a streamed frame would not be a complete EvaluateV1Response,
-        # and the frontend types it as Required<EvaluateV1Response>. Attached here, once
-        # per frame, rather than per subscriber.
+        # which is what every client types the stream as. Attached here, once per frame,
+        # rather than per subscriber.
         self._model = model
         self._version = version
         self._screens: dict[str, _Screen] = {}

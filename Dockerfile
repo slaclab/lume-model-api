@@ -1,19 +1,15 @@
-# Build context = repo root:  docker build -f webapp/Dockerfile -t lume-monitor .
+# API-only image. Build context = repo root:  docker build -t lume-model-api .
+#
+# This image ships no UI. A UI repo builds its own image `FROM` this one and copies its
+# built assets into /app/lume_model_api/static/, which main.py serves at "/" when present.
+# Nothing here needs Node.
 ARG PYTHON_VERSION=3.12
 ARG LCLS_LATTICE_REF=c6b8defbf2ba83bf8f5af70191c893de361657d1 # 52ad1a5ddd00aa57a89a4fc7f2fa1a2363216ae8
-ARG FACET_LATTICE_REF=d8b2e3f1db4d8f34b95cab5e1a3959f073ac165f 
+ARG FACET_LATTICE_REF=d8b2e3f1db4d8f34b95cab5e1a3959f073ac165f
 ARG VA_REF=d67f70c7f453ad5cbb1fc6bd866cbd985aa55d6b # 77bbda8
 ARG DOCKER_PLATFORM=linux/amd64
 
-# --- Stage 1: build the React frontend ---
-FROM node:20-slim AS frontend-build
-WORKDIR /app/frontend
-COPY webapp/frontend/package.json webapp/frontend/package-lock.json ./
-RUN npm ci
-COPY webapp/frontend/ ./
-RUN npm run build
-
-# --- Stage 2: Python runtime with Bmad + the cu_hxr_staged model ---
+# --- Python runtime with Bmad + the cu_hxr_staged model ---
 FROM --platform=${DOCKER_PLATFORM} python:${PYTHON_VERSION}-slim AS runtime
 ARG PYTHON_VERSION
 ARG LCLS_LATTICE_REF
@@ -24,7 +20,6 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PATH=/opt/conda/bin:$PATH \
-    PYTHONPATH=/app \
     LCLS_LATTICE=/opt/lcls-lattice \
     FACET_LATTICE=/opt/facet-lattice \
     KMP_DUPLICATE_LIB_OK=TRUE \
@@ -73,20 +68,25 @@ RUN python -m pip install --upgrade setuptools wheel \
     && cd /app \
     && python -m pip install --force-reinstall --no-deps \
         "lume-bmad @ git+https://github.com/lume-science/lume-bmad.git@e49c6891978ae2d0c09229307ebd2f3a4aa4887f" \
-        "lume-torch @ git+https://github.com/lume-science/lume-torch@acd21eb1f66a525078db7baac21c99d973d47b94" \
-    && python -m pip install fastapi "uvicorn[standard]" sse-starlette pydantic numpy scipy pyepics caproto prometheus-client
+        "lume-torch @ git+https://github.com/lume-science/lume-torch@acd21eb1f66a525078db7baac21c99d973d47b94"
 
 # The [surrogate] extra pulls an incompatible lume-cheetah (0.1.0, missing
 # `.transformer`); pin the git build that virtual-accelerator@${VA_REF} expects.
 RUN python -m pip install --force-reinstall --no-deps \
     "lume-cheetah @ git+https://github.com/lume-science/lume-cheetah@148d598c6"
 
-# App code: the lume_visualizations model layer + the webapp package (import via PYTHONPATH=/app)
-COPY lume_visualizations/ ./lume_visualizations/
-COPY webapp/backend/ ./webapp/backend/
-COPY webapp/__init__.py ./webapp/__init__.py
-# Built frontend served by the backend at "/"
-COPY --from=frontend-build /app/frontend/dist ./webapp/backend/static/
+# App code, then the install. This order is load-bearing and was verified by reversing it:
+# `pip install -e .` with the package directory absent finds no packages, reports
+# "Successfully installed lume-model-api-0.1.0" with exit 0, and then every import fails with
+# ModuleNotFoundError even after the code is copied in. pyproject.toml declares
+# readme = "README.md", so the build also hard-fails without the README.
+COPY pyproject.toml README.md ./
+COPY lume_model_api/ ./lume_model_api/
+
+# pyproject.toml is the single source of truth for the pip-installable deps (fastapi,
+# uvicorn, sse-starlette, pydantic, prometheus-client, numpy, scipy, caproto), plus pyepics
+# from the [epics] extra for the live role.
+RUN python -m pip install -e ".[epics]"
 
 EXPOSE 8000
-CMD ["uvicorn", "webapp.backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "lume_model_api.api.main:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -1,4 +1,6 @@
-# Eval pool. Stateless: serves the SPA + /api/config + /api/v1/evaluate.
+# Eval pool. Stateless: serves /api/config + /api/v1/evaluate, plus a UI at "/" if one was
+# baked into the image or mounted via LUME_STATIC_DIR. This image ships none, so "/" 404s.
+# A UI repo overlays this Deployment's image with its own derived one.
 # EPICS-free (LUME_ROLE=eval, no EPICS configmap) so it scales freely.
 # Baseline 2 for HA (avoids ~25-30s model-cold-start downtime on a single-pod restart).
 # When KEDA is enabled (keda-scaledobject.yaml) its minReplicaCount governs and this
@@ -21,7 +23,7 @@ spec:
       containers:
         - name: lume-monitor
           # Tag is pinned via kustomization.yaml `images:` (immutable per test).
-          image: ghcr.io/slaclab/lume-monitor
+          image: ghcr.io/slaclab/lume-model-api
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8000

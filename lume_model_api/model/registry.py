@@ -14,14 +14,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from lume_visualizations.config import (
+from lume_model_api.model.config import (
     EPICS_INPUT_PVS,
     EXCLUDED_EPICS_PVS,
     MANUAL_INPUT_PVS,
     SCREEN_CONFIGS,
     ScreenConfig,
 )
-from lume_visualizations.fake_epics_ioc import FAKE_INPUT_SPECS
+from lume_model_api.model.fake_epics_ioc import FAKE_INPUT_SPECS
 
 
 # --- model factories (import heavy deps lazily, only when instantiated) ---
@@ -36,7 +36,7 @@ def _create_cu_hxr_staged_model(start_element: str = "OTR2", end_element: str = 
 
 @dataclass(frozen=True)
 class ModelSpec:
-    """Everything per-model the generic source + webapp need."""
+    """Everything per-model the generic source + API layer need."""
 
     name: str
     description: str

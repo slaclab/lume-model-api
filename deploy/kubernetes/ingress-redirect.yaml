@@ -1,6 +1,6 @@
 # 301 redirect for the bare path (no trailing slash) -> trailing-slash URL.
-# Needed because the SPA uses relative asset paths (base:'./'); without the slash
-# the browser resolves /assets and /api against "/" and they 404.
+# Needed by any UI that uses relative asset paths. Without the slash the browser
+# resolves /assets and /api against "/" and they 404.
 #
 # MUST be a separate Ingress from the serving one: `permanent-redirect` applies to
 # every path in its Ingress, so pairing it with /live-monitor(/|$)(.*) would also

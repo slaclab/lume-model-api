@@ -23,7 +23,7 @@ spec:
     spec:
       containers:
         - name: lume-monitor
-          image: ghcr.io/slaclab/lume-monitor
+          image: ghcr.io/slaclab/lume-model-api
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8000

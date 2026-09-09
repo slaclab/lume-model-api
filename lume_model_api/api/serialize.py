@@ -74,17 +74,19 @@ def frame_to_wire(
 ) -> dict:
     """Serialize a BeamFrame to the /api/v1/evaluate wire dict.
 
-    The ONE wire shape, used by the web UI, the SSE live stream and programmatic
-    callers alike. Scalars are always present, the heavy outputs are opt-in. `model`
-    and `version` are added by the endpoint. Done in the pool worker so arrays cross
-    the process boundary already base64-encoded.
+    The ONE wire shape, used by every UI, the SSE live stream and programmatic callers
+    alike. Scalars are always present, the heavy outputs are opt-in. `model` and
+    `version` are added by the endpoint. Done in the pool worker so arrays cross the
+    process boundary already base64-encoded.
 
     EVERY KEY MUST BE PRESENT ON EVERY CALL, including the opt-in ones, which are None
     when not requested rather than absent. The SSE stream json.dumps this dict without
     validating it against the response model (see main.py live_stream), so a
-    conditionally-omitted key would reach the browser genuinely missing, and the
-    frontend types it as Required<EvaluateResponse> in api/client.ts. There would be no
-    type error to catch it. tests/test_wire_shape.py enforces this across every screen.
+    conditionally-omitted key reaches the client genuinely missing. Clients generate
+    their stream types from EvaluateV1Response and treat every key as present, because
+    nothing on that path can tell them otherwise, and a dropped key does not change
+    openapi.json so no consumer can detect it by refetching the schema.
+    tests/test_wire_shape.py enforces this across every screen.
     """
     out: dict = {
         "screen": frame.screen_key,

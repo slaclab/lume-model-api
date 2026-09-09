@@ -41,7 +41,7 @@ def _init_worker(model_name: str, mock: bool) -> None:
     import tempfile
 
     os.chdir(tempfile.mkdtemp(prefix="lume-worker-"))
-    from webapp.backend.source import get_source
+    from lume_model_api.api.source import get_source
 
     global _SOURCE
     _SOURCE = get_source(model_name, mock=mock)
@@ -58,7 +58,7 @@ def _worker_evaluate(
     image_caption: str,
     x_axis_value: float,
 ) -> dict:
-    from webapp.backend.serialize import frame_to_wire
+    from lume_model_api.api.serialize import frame_to_wire
 
     frame = _SOURCE.snapshot(
         screen,

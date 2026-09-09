@@ -1,6 +1,8 @@
 # One host, two backends. The EPICS-touching endpoints (SSE live stream +
-# machine-snapshot) go to the singleton live producer; everything else (SPA,
-# /api/config, /api/v1/evaluate) goes to the autoscalable eval pool.
+# machine-snapshot) go to the singleton live producer. Everything else (/api/config,
+# /api/v1/evaluate, and a UI at "/" if the eval image carries one) goes to the
+# autoscalable eval pool. Routing is by regex, so adding or removing an endpoint
+# changes no rule here.
 #
 # Both paths share the rewrite-target /$2, so each regex must capture the remainder
 # (after /live-monitor/) in group 2. nginx orders regex locations by descending path
@@ -34,7 +36,7 @@ spec:
                 name: lume-monitor-live
                 port:
                   number: 80
-          # Everything else (SPA, config, evaluate) -> eval pool.
+          # Everything else (config, evaluate, and any UI) -> eval pool.
           - path: /live-monitor(/|$)(.*)
             pathType: ImplementationSpecific
             backend:
