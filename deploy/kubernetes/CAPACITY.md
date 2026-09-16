@@ -1,8 +1,9 @@
 # Capacity & performance findings
 
-Measured 2026-08-04 against the deployed `cu_hxr_staged` model on the S3DF cluster
-(`ad-accel-online-ml`). Purpose: pin per-eval latency `L`, find the right worker
-count `K` per pod, and estimate how many concurrent users we can serve.
+Measured 2026-08-04 against `cu_hxr_staged` on the S3DF cluster
+(`ad-accel-online-ml`). All numbers here are for that model; other hosted models
+will differ. Purpose: pin per-eval latency `L`, find the right worker count `K` per
+pod, and estimate how many concurrent users we can serve.
 
 > **Update — 2026-08-24 (production `/metrics`, image `n6`).** Read `lume_evaluate_seconds`
 > straight off the running pods: **p50 ≈ 2.5s per eval, not ~5s.** Eval pod (interactive)
@@ -34,7 +35,8 @@ count `K` per pod, and estimate how many concurrent users we can serve.
 ## How it was measured
 
 - Port-forwarded straight to the running pod (bypassing the ingress) and timed
-  `POST /api/v1/evaluate` — sequential for clean `L`, then small concurrent bursts.
+  `POST /api/v1/evaluate` (the path at the time, now `POST /api/v1/models/cu_hxr_staged/evaluate`),
+  sequential for clean `L`, then small concurrent bursts.
 - For the K/threads A/B: one throwaway Deployment (`K=4, threads=1`, 4-core limit)
   compared against prod (`K=2, threads=2`, same 4 cores). Throwaway pod deleted after.
 - Idle pod memory ≈ 2 GiB total with `K=2` (so **CPU, not memory, is the constraint**;
@@ -80,7 +82,8 @@ Scaling adds *more* concurrent 5s-evals; it doesn't make them faster.
 - Numbers come from one node, one screen (OTR3), and baseline inputs (`inputs={}`).
   Real `L` will vary with track range, particle count, and beam-loss cases — treat
   p95 here as indicative, not final.
-- `L` is model/lattice/hardware-version dependent; re-measure after upgrades.
+- `L` is model/lattice/hardware-version dependent; re-measure after upgrades or when
+  switching to a different hosted model.
 
 ## TODOs / follow-ups
 

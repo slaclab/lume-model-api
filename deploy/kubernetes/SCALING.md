@@ -1,16 +1,19 @@
-# Scaling the LUME monitor
+# Scaling the model service
 
 ## Current setup
 
-- **Eval pool** (`lume-monitor-eval`): stateless, EPICS-free, safe to run many
+- **Eval pool** (`lume-model-api-eval`): stateless, EPICS-free, safe to run many
   replicas. Baseline is `replicas: 2` for HA (a single-pod restart is ~25-30s of
   model cold start).
-- **Live producer** (`lume-monitor-live`): the EPICS reader + broadcast hub.
+- **Live producer** (`lume-model-api-live`): the EPICS reader + broadcast hub.
   **Singleton — must stay `replicas: 1`.** Do not scale it.
 
 There is no autoscaler installed in the cluster (no KEDA, no Prometheus), so scaling
 is **manual**. Given the load pattern (scheduled classes on a low steady baseline),
 that's usually enough: bump replicas before a class, drop them after.
+
+Capacity numbers in [`CAPACITY.md`](./CAPACITY.md) were measured for `cu_hxr_staged`;
+other hosted models will differ.
 
 ## Manual scaling
 
@@ -18,13 +21,13 @@ Cold start is ~25-30s, so scale up a few minutes **before** a class starts:
 
 ```bash
 # Before a class / demo — more eval capacity
-kubectl -n lume-visualizations scale deployment/lume-monitor-eval --replicas=4
+kubectl -n lume-model-api scale deployment/lume-model-api-eval --replicas=4
 
 # After — back to baseline
-kubectl -n lume-visualizations scale deployment/lume-monitor-eval --replicas=2
+kubectl -n lume-model-api scale deployment/lume-model-api-eval --replicas=2
 ```
 
-Never scale `lume-monitor-live` above 1 (see above).
+Never scale `lume-model-api-live` above 1 (see above).
 
 ## Inspecting load (/metrics)
 
@@ -32,7 +35,7 @@ Each pod exposes Prometheus-format metrics at `/metrics`, even with no Prometheu
 installed — useful for eyeballing saturation before deciding to scale:
 
 ```bash
-kubectl -n lume-visualizations port-forward deploy/lume-monitor-eval 8000:8000
+kubectl -n lume-model-api port-forward deploy/lume-model-api-eval 8000:8000
 # in another shell:
 curl -s localhost:8000/metrics | grep '^lume_'
 ```
@@ -41,7 +44,8 @@ Measured latency, worker-count tuning, and capacity estimates live in
 [`CAPACITY.md`](./CAPACITY.md).
 
 Key series:
-- `lume_pool_inflight` / `lume_pool_max_inflight` — current vs max in-flight per pod.
+- `lume_pool_inflight` / `lume_pool_max_inflight`: current vs max in-flight, one series per
+  hosted model per pod (the `model` label). Sum over `model` to get the pod's load.
   Sustained `inflight` near `max_inflight` (with 503s) means you need more replicas.
 - `lume_evaluate_seconds` — evaluate latency histogram.
 - `lume_evaluate_total{outcome=...}` and `lume_pool_rejected_total` — throughput and
@@ -59,7 +63,7 @@ Two levels, depending on what you need:
 | Need | Install | Why |
 |---|---|---|
 | Automated **scheduled** pre-scale (no reactive metrics) | **KEDA only** | KEDA's `cron` trigger needs no Prometheus. Replaces the manual `kubectl scale` with a schedule. |
-| **Reactive** scaling on saturation | **KEDA + Prometheus** | KEDA's `prometheus` trigger scales on `lume_pool_inflight`; needs Prometheus scraping the pods. |
+| **Reactive** scaling on saturation | **KEDA + Prometheus** | KEDA's `prometheus` trigger scales on `avg(sum by (pod) (lume_pool_inflight))`, summing the per-model series first so a pod hosting several models is not under-counted. Needs Prometheus scraping the pods with a `pod` label. |
 
 Both require **cluster-admin** to install the controllers/CRDs. A ready-to-use
 `ScaledObject` (cron + prometheus triggers) is already in
@@ -98,12 +102,12 @@ Then make it scrape the eval pods. With the Prometheus Operator, add a
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
-  name: lume-monitor-eval
-  namespace: lume-visualizations
+  name: lume-model-api-eval
+  namespace: lume-model-api
 spec:
   selector:
     matchLabels:
-      app: lume-monitor-eval   # add this label to service.yaml's eval Service first
+      app: lume-model-api-eval   # add this label to service.yaml's eval Service first
   endpoints:
     - port: http
       path: /metrics
@@ -115,4 +119,4 @@ Verify the metric is queryable, then set the `serverAddress` in
 
 > Finding the address and checking cluster headroom (node allocatable, namespace
 > ResourceQuota) is covered by `kubectl get svc -A | grep -i prometheus` and
-> `kubectl describe resourcequota -n lume-visualizations`.
+> `kubectl describe resourcequota -n lume-model-api`.

@@ -1,46 +1,72 @@
 # One host, two backends. The EPICS-touching endpoints (SSE live stream +
-# machine-snapshot) go to the singleton live producer. Everything else (/api/config,
-# /api/v1/evaluate, and a UI at "/" if the eval image carries one) goes to the
-# autoscalable eval pool. Routing is by regex, so adding or removing an endpoint
-# changes no rule here.
+# machine-snapshot) go to the singleton live producer. Everything else (GET /api/v1/models,
+# each model's config and evaluate routes, and a UI at "/" if the eval image carries one)
+# goes to the autoscalable eval pool. Routing is by regex, so adding or removing an endpoint
+# changes no rule here, and neither does hosting another model: the model name is one path
+# segment inside the same prefix.
+#
+# The prefix is /lume-model-api, this service's own. The old monolith keeps /live-monitor from
+# its own namespace, so both are reachable on this host during the cut-over.
 #
 # Both paths share the rewrite-target /$2, so each regex must capture the remainder
-# (after /live-monitor/) in group 2. nginx orders regex locations by descending path
+# (after /lume-model-api/) in group 2. nginx orders regex locations by descending path
 # length, so the longer live path is matched before the catch-all.
 #
 # SSE needs a long read timeout and no response buffering.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: lume-monitor
-  namespace: lume-visualizations
+  name: lume-model-api
+  namespace: lume-model-api
   annotations:
     nginx.ingress.kubernetes.io/rewrite-target: /$2
     nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
     nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
     nginx.ingress.kubernetes.io/proxy-buffering: "off"
-    # Internal-only exposure gate (same ranges as the prior marimo ingress).
-    # Remove/adjust when the service is intended to go public.
-    #nginx.ingress.kubernetes.io/whitelist-source-range: "71.198.255.25,134.79.0.0/16,172.16.0.0/12,208.45.173.162,216.46.165.69,172.27.8.0/24"
+    # Internal-only exposure gate, the same ranges the old monolith carried, so moving to this
+    # prefix does not widen who can reach the service. Verified effective on 2026-09-16: TLS
+    # terminates on an F5 BigIP in front of the cluster, and the controller still evaluates the
+    # real client address (a single-IP allowlist admitted that IP and refused others), so it is
+    # trusting the forwarded client address. Remove it when the service is meant to go public.
+    nginx.ingress.kubernetes.io/whitelist-source-range: "71.198.255.25,134.79.0.0/16,172.16.0.0/12,208.45.173.162,216.46.165.69,172.27.8.0/24"
 spec:
   ingressClassName: nginx
   rules:
     - host: ard-modeling-service.slac.stanford.edu
       http:
         paths:
-          # EPICS-touching endpoints -> live producer (singleton).
-          - path: /live-monitor(/)(api/live/.*|api/machine-snapshot)
+          # EPICS-touching endpoints, for any model name -> live producer (singleton).
+          # The third group is nested inside group 2, so rewrite-target /$2 still yields the
+          # whole remainder after /lume-model-api/ and the inner alternation costs no group.
+          - path: /lume-model-api(/)(api/v1/models/[^/]+/(live/.*|machine-snapshot))
             pathType: ImplementationSpecific
             backend:
               service:
-                name: lume-monitor-live
+                name: lume-model-api-live
                 port:
                   number: 80
-          # Everything else (config, evaluate, and any UI) -> eval pool.
-          - path: /live-monitor(/|$)(.*)
+          # Everything else (the model list, config, evaluate, and any UI) -> eval pool.
+          - path: /lume-model-api(/|$)(.*)
             pathType: ImplementationSpecific
             backend:
               service:
-                name: lume-monitor-eval
+                name: lume-model-api-eval
                 port:
                   number: 80
+# Splitting models across pods later needs no client change, only rules here: the model name
+# is already in the path. One Deployment pair per model, each with a one-entry LUME_MODELS,
+# then one rule per /api/v1/models/<name>/ prefix. Sketch, see docs/DEPLOY.md:
+#
+#          - path: /lume-model-api(/)(api/v1/models/cu_hxr_staged/(live/.*|machine-snapshot))
+#            backend: { service: { name: lume-model-api-cu-hxr-live, port: { number: 80 } } }
+#          - path: /lume-model-api(/)(api/v1/models/cu_hxr_staged/.*)
+#            backend: { service: { name: lume-model-api-cu-hxr-eval, port: { number: 80 } } }
+#          # The list route is ANCHORED with $ so it cannot swallow the per-model prefixes
+#          # above. nginx orders regex locations by descending pattern length rather than by
+#          # manifest order, so anchoring is what makes this correct, not the position here.
+#          - path: /lume-model-api(/)(api/v1/models)$
+#            backend: { service: { name: lume-model-api-catalog, port: { number: 80 } } }
+#
+# Open item for that day: GET /api/v1/models then lists only the pod that answered, so the
+# split needs an aggregating catalog (one pod told about the others, or a static JSON served
+# by the ingress) added at the same time.

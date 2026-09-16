@@ -1,6 +1,6 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-namespace: lume-visualizations
+namespace: lume-model-api
 resources:
   - namespace.yaml
   - configmap-epics.yaml
@@ -8,15 +8,16 @@ resources:
   - deployment-live.yaml
   - service.yaml
   - ingress.yaml
-  - ingress-redirect.yaml
 # NOTE: keda-scaledobject.yaml (eval-pool autoscaling) is intentionally NOT listed —
 # it needs KEDA installed + site-specific values. Apply it separately once ready.
 
 # Pin the image tag for a reproducible test. Bump newTag when you push a new image.
 # NOTE: no tag exists under the lume-model-api name yet. The image was renamed with the
 # repo split, and nothing in CI builds it, so build and push one before applying this.
-# The object names below stay lume-monitor-* on purpose: they identify the running
-# production Deployments and Services, and renaming them would orphan the live service.
+# Everything here is named lume-model-api-* in its own lume-model-api namespace, and serves
+# the /lume-model-api prefix, so applying it touches nothing the old monolith owns. The old
+# lume-monitor-* objects keep serving /live-monitor from lume-visualizations until the UI is
+# ported, and are deleted at the cut-over. See docs/DEPLOY.md.
 images:
   - name: ghcr.io/slaclab/lume-model-api
     newTag: n8

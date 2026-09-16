@@ -1,5 +1,6 @@
-# Eval pool. Stateless: serves /api/config + /api/v1/evaluate, plus a UI at "/" if one was
-# baked into the image or mounted via LUME_STATIC_DIR. This image ships none, so "/" 404s.
+# Eval pool. Stateless: serves GET /api/v1/models, each model's config and evaluate routes,
+# plus a UI at "/" if one was baked into the image or mounted via LUME_STATIC_DIR. This image
+# ships none, so "/" 404s.
 # A UI repo overlays this Deployment's image with its own derived one.
 # EPICS-free (LUME_ROLE=eval, no EPICS configmap) so it scales freely.
 # Baseline 2 for HA (avoids ~25-30s model-cold-start downtime on a single-pod restart).
@@ -8,20 +9,20 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: lume-monitor-eval
-  namespace: lume-visualizations
+  name: lume-model-api-eval
+  namespace: lume-model-api
 spec:
   replicas: 2
   selector:
     matchLabels:
-      app: lume-monitor-eval
+      app: lume-model-api-eval
   template:
     metadata:
       labels:
-        app: lume-monitor-eval
+        app: lume-model-api-eval
     spec:
       containers:
-        - name: lume-monitor
+        - name: lume-model-api
           # Tag is pinned via kustomization.yaml `images:` (immutable per test).
           image: ghcr.io/slaclab/lume-model-api
           imagePullPolicy: IfNotPresent
@@ -29,14 +30,27 @@ spec:
             - containerPort: 8000
               name: http
           env:
+            # The models this pod hosts, keyed by the URL name each answers on at
+            # /api/v1/models/<name>/... . Add a key to host a second model in the same
+            # process, with its own optional "workers", "kwargs" and "max_inflight".
+            #
+            # Memory scales with the SUM of workers across models, at roughly 2 GB per real
+            # model worker, so adding a model means raising requests and limits below.
+            - name: LUME_MODELS
+              value: '{"cu_hxr_staged": {"kwargs": {"n_particles": 1000, "end_element": "TD11"}}}'
             - name: LUME_ROLE
               value: "eval"
+            # The ingress prefix, used only for the links Swagger and redirects generate. The
+            # rewrite strips it, so every route the app serves still starts at /api.
+            - name: LUME_ROOT_PATH
+              value: /lume-model-api
             - name: LCLS_LATTICE
               value: /opt/lcls-lattice
             - name: KMP_DUPLICATE_LIB_OK
               value: "TRUE"
             # In-pod subprocess pool: K model instances (each ~2 GB) run K evaluates
-            # in parallel. Size memory/cpu for K.
+            # in parallel. Per model, and the default for any LUME_MODELS entry that does
+            # not set its own "workers", so size memory/cpu for K times the model count.
             - name: LUME_POOL_WORKERS
               value: "2"
             - name: LUME_MAX_INFLIGHT
@@ -51,20 +65,25 @@ spec:
             limits:
               cpu: "4"
               memory: 7Gi
+          # Probes target /healthz, not /api/v1/models. /healthz answers 200 only once every
+          # pool has warmed AND none has lost a worker, so a pod whose model subprocess died
+          # (unrecoverable in-process) is pulled from the Service and restarted instead of
+          # serving 503s until someone notices. /api/v1/models stays pure client discovery, so
+          # a pod hosting several models keeps listing the ones that still work.
           # Model init (~25-30s): allow generous startup before readiness.
           startupProbe:
             httpGet:
-              path: /api/config
+              path: /healthz
               port: 8000
             periodSeconds: 5
             failureThreshold: 48
           readinessProbe:
             httpGet:
-              path: /api/config
+              path: /healthz
               port: 8000
             periodSeconds: 10
           livenessProbe:
             httpGet:
-              path: /api/config
+              path: /healthz
               port: 8000
             periodSeconds: 30

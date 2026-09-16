@@ -13,9 +13,15 @@ never starts them.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
-from lume_model_api.api.main import app
+# A set root_path makes FastAPI add a `servers` entry pointing at that one prefix, which would
+# tie the committed contract to a single deployment. Popped before the import because the app is
+# constructed at import time, and the schema must stay deployment-neutral.
+os.environ.pop("LUME_ROOT_PATH", None)
+
+from lume_model_api.api.main import app  # noqa: E402  (must follow the env pop above)
 
 OUT = Path(__file__).resolve().parents[1] / "openapi.json"
 

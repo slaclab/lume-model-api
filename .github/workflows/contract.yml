@@ -7,11 +7,12 @@
 #
 #   contract /api/v1/* is called by UIs, notebooks and GUIs in other repos. The drift check
 #            passes happily when a v1 field is renamed, so tests/test_api_contract.py
-#            asserts the v1 field names by hand.
+#            asserts the v1 field names and route paths by hand.
 #
-# No model needed. Importing lume_model_api.api.main pulls in caproto and numpy only, because
-# the model is built inside ModelPool worker subprocesses and app.openapi() never starts
-# them. So no torch, no pytao, no Bmad lattice and no EPICS.
+# LUME_MODELS=demo selects the in-repo demo model: a light LUMEModel subclass that depends
+# only on lume-base (from PyPI), so CI needs no torch, no pytao, no Bmad lattice and no
+# EPICS. The demo model runs the same introspection, evaluate and serialization path as a
+# real model, which means CI tests the whole pipeline rather than a stub.
 #
 # This guards the producer side only. Whether a consumer has picked up a schema change is
 # enforced in that consumer's own CI, against the ref it pins.
@@ -27,6 +28,8 @@ on:
 jobs:
   contract:
     runs-on: ubuntu-latest
+    env:
+      LUME_MODELS: demo
     # Actions are pinned to full-length commit SHAs because the slaclab org requires it.
     # A moving tag like @v4 can be repointed at new code, a SHA cannot. The trailing
     # comment is the human-readable version, so keep the two in step when bumping.

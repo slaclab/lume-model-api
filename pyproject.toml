@@ -5,14 +5,11 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "lume-model-api"
 version = "0.1.0"
-description = "HTTP API over the LCLS CU injector virtual-accelerator staged model"
+description = "HTTP API that hosts any LUMEModel: introspection, evaluate and a live SSE stream"
 readme = "README.md"
 requires-python = ">=3.11"
 # The single source of truth for the pip-installable dependencies. The Dockerfile and
 # scripts/setup-dev-env.sh both `pip install -e .` rather than repeating this list.
-#
-# caproto is required, not optional: api/main.py imports model/fake_epics_ioc.py, which
-# imports caproto.server at module top, so it loads on every startup including mock mode.
 dependencies = [
     "fastapi",
     "uvicorn[standard]",
@@ -21,30 +18,19 @@ dependencies = [
     "prometheus-client",
     "numpy>=1.26",
     "scipy>=1.10",
-    "caproto>=1.3",
+    "lume-base>=0.5",
 ]
 
-# The heavy model stack (torch, Bmad, pytao, virtual-accelerator, lume-bmad, lume-torch,
-# lume-cheetah) is deliberately absent. None of it is on PyPI at the revisions this needs,
-# so it is pinned by git ref and conda channel in the Dockerfile and in
-# scripts/setup-dev-env.sh. Everything here imports it lazily, which is why mock mode, the
-# tests and app.openapi() all run without it.
+# A hosted model's own stack (torch, Bmad, pytao, virtual-accelerator) is deliberately absent.
+# None of it is on PyPI at the revisions a real model needs, so it is pinned by git ref and
+# conda channel in the Dockerfile and in scripts/setup-dev-env.sh. This package only ever
+# imports a model through `model/loader.py`, inside a pool worker, which is why the demo
+# model, the tests and app.openapi() all run without any of it.
 [project.optional-dependencies]
-# pyepics is only imported inside functions in model/epics_controls.py, so only the live
-# role needs it. Keeping it optional also keeps CI from having to build it with no EPICS
-# headers present.
 epics = ["pyepics>=3.5"]
-dev = ["pytest"]
-
-[project.scripts]
-# Renamed from lume-fake-epics-ioc so this can be installed alongside the older
-# lume-visualizations package, which still ships a script under that name.
-lume-model-api-fake-ioc = "lume_model_api.model.fake_epics_ioc:main"
+dev = ["pytest", "httpx"]
 
 [tool.setuptools.packages.find]
-# The trailing * is required. Without it setuptools matches the name exactly and silently
-# drops lume_model_api.api and lume_model_api.model, producing a wheel that imports the top
-# package and fails on everything under it.
 include = ["lume_model_api*"]
 namespaces = false
 

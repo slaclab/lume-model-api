@@ -1,111 +1,151 @@
-"""Pydantic request/response schemas for the API."""
+"""Pydantic request/response schemas for the API.
+
+The output payload is variable-generic: a response is a map of output id to an `Output`,
+discriminated on `kind`. That is what lets one contract serve any model. A caller reads the
+kinds it cares about from `GET /api/v1/models/{name}/config` before it ever calls evaluate.
+
+Units travel with every value, in the model's own units. Nothing here converts, because a
+generic host cannot tell a beam image from a lattice function.
+"""
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Annotated, Any, Literal, Optional, Union
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+# --- GET /api/v1/models ----------------------------------------------------------
 
 
-class ScreenInfo(BaseModel):
-    key: str
-    label: str
-    has_image: bool
+class ModelListEntry(BaseModel):
+    """One model this process hosts. A UI reads this list rather than hard-coding names."""
+
+    # The URL segment this model answers on: /api/v1/models/{name}/config and friends.
+    name: str
+    description: str = ""
+    # "demo" or "<name> (demo)" marks a demo deployment, so a client can tell one from a real
+    # machine model even when the demo was selected by full factory path.
+    version: str
+
+
+# --- GET /api/v1/models/{name}/config ---------------------------------------------
 
 
 class InputInfo(BaseModel):
+    """A writable scalar knob."""
+
     id: str
-    label: str
+    unit: str = ""
+    default: float
     min: float
     max: float
-    default: float
-    unit: str = ""
+    # "model" when the model declared a value_range, "derived" when it was inferred from
+    # the default (see model/introspect.py). A UI may want to mark a derived range as a
+    # suggestion rather than a limit.
+    range_source: str
+    # The model declares min == max, so there is nothing to drive. Excluded from the
+    # baseline and from the live input reads.
+    constant: bool = False
 
 
-class ScalarInfo(BaseModel):
+class OutputInfo(BaseModel):
     id: str
-    label: str
-    unit: str
+    kind: Literal["scalar", "array", "particles", "value"]
+    unit: str = ""
+    shape: Optional[list[int]] = None
+    element_name: Optional[str] = None  # beamline element, when the variable declares one
+
+
+class ScreenInfo(BaseModel):
+    """A diagnostic location. `image` is null when the model publishes no image for it."""
+
+    key: str
+    particles: str
+    image: Optional[str] = None
 
 
 class ConfigResponse(BaseModel):
     model: str
     version: str
-    screens: list[ScreenInfo]
+    description: str = ""
     inputs: list[InputInfo]
-    scalars: list[ScalarInfo]
-    scan_pv: str  # magnet the quad scan sweeps, per-model (see ModelSpec.scan_pv)
-
-
-class Scalars(BaseModel):
-    xrms_um: float
-    yrms_um: float
-    sigma_z_um: float
-    norm_emit_x_um_rad: float
-    norm_emit_y_um_rad: float
+    outputs: list[OutputInfo]
+    screens: list[ScreenInfo]
 
 
 class SnapshotResponse(BaseModel):
     inputs: dict[str, float]
 
 
-# --- The evaluate API (/api/v1/evaluate) ----------------------------------------
-# ONE contract for every caller: this web UI, any future UI, and programmatic clients
-# such as notebooks and emittance GUIs. There is deliberately no separate UI-private
-# endpoint, because a second shape would mean every new UI reimplements the unit
-# handling. Large arrays are base64-encoded little-endian float32. Units travel with
-# the data in V1Distribution.units, so no client hard-codes them.
+# --- The evaluate API (POST /api/v1/models/{name}/evaluate) ----------------------
+# ONE contract for every caller: any UI, and programmatic clients such as notebooks and
+# emittance GUIs. There is deliberately no separate UI-private endpoint, because a second
+# shape would mean every new UI reimplements the unit handling. Large arrays are
+# base64-encoded little-endian float32, so decode with e.g.
+# numpy.frombuffer(base64.b64decode(s), dtype="<f4").
 
 
-class V1Image(BaseModel):
-    shape: list[int]  # [rows, cols]
+class ScalarOutput(BaseModel):
+    kind: Literal["scalar"]
+    value: float
+    unit: str = ""
+
+
+class ArrayOutput(BaseModel):
+    kind: Literal["array"]
+    shape: list[int]
     dtype: str = "float32"
     data_b64: str  # base64 little-endian float32, row-major
+    unit: str = ""
 
 
-class V1Distribution(BaseModel):
-    n: int  # particles per coordinate
-    units: dict[str, str]  # coord name -> unit, e.g. {"x": "µm", "px": "eV/c"}
+class ParticlesOutput(BaseModel):
+    kind: Literal["particles"]
+    n: int  # particles per coordinate, after subsampling to max_particles
+    units: dict[str, str]  # coord name -> unit, e.g. {"x": "m", "px": "eV/c"}
     coords: dict[str, str]  # coord name -> base64 little-endian float32
+    # Computed on the full beam, before subsampling, so a small max_particles thins the
+    # scatter plot without changing the numbers beside it.
+    stats: dict[str, float]
+    stats_units: dict[str, str]
 
 
-class V1Twiss(BaseModel):
-    s: list[float]
-    beta_x: list[float]
-    beta_y: list[float]
+class ValueOutput(BaseModel):
+    """Anything that is not a number, an array or a beam: enums, strings, flags."""
+
+    kind: Literal["value"]
+    # Deliberately untyped: this is the catch-all for variable classes the service does not
+    # know, so it cannot promise more than "JSON-serializable".
+    value: Any = None
+
+
+Output = Annotated[
+    Union[ScalarOutput, ArrayOutput, ParticlesOutput, ValueOutput],
+    Field(discriminator="kind"),
+]
 
 
 class EvaluateV1Request(BaseModel):
-    screen: str
-    inputs: dict[str, float] = {}  # PV name -> value; overlaid on the design baseline
-    include_image: bool = False
-    include_distribution: bool = False
-    include_twiss: bool = False
-    max_particles: Optional[int] = None  # defaults to DEFAULT_MAX_PARTICLES (3000)
+    # id -> control value, overlaid on the model's baseline, so send only the knobs you
+    # want to change ({} is the design machine). Only writable ScalarVariables become
+    # inputs (see model/introspect.py), so a value is always a number.
+    inputs: dict[str, float] = {}
+    # Output ids to return. Every id asked for is present in the response.
+    outputs: list[str] = []
+    # Convenience: appends this screen's particles id and, when it has one, its image id.
+    screen: Optional[str] = None
+    max_particles: Optional[int] = None  # defaults to 3000, never the full beam
+    # Opt-in Gaussian blur, in pixels, applied to 2-D array outputs. A screen image built
+    # from ~1000 macroparticles is single-count noise at pixel resolution, and convolving
+    # with the detector PSF is what makes it look like a camera frame. Off by default,
+    # because blurring every 2-D array is wrong for a generic host.
+    smooth_images_sigma_px: Optional[float] = None
 
 
 class EvaluateV1Response(BaseModel):
     model: str
     version: str
-    screen: str
-    screen_label: str  # human-readable screen name, e.g. "OTR4"
-    frame_index: int
     timestamp: float
-    # Why an image may be absent, e.g. "No image generated at OTR2 for this model."
-    # Populated even when include_image was false, so a client can explain a null image.
-    image_message: str = ""
-    image_caption: str = ""  # echoed back from the request, for UI captions
-    scalars: Scalars  # always returned
-    image: Optional[V1Image] = None
-    distribution: Optional[V1Distribution] = None
-    twiss: Optional[V1Twiss] = None
-
-
-# Scalar metadata surfaced by GET /config (fixed for the staged models).
-SCALAR_INFO: list[ScalarInfo] = [
-    ScalarInfo(id="xrms_um", label="σx", unit="µm"),
-    ScalarInfo(id="yrms_um", label="σy", unit="µm"),
-    ScalarInfo(id="sigma_z_um", label="σz", unit="µm"),
-    ScalarInfo(id="norm_emit_x_um_rad", label="εx", unit="µm·rad"),
-    ScalarInfo(id="norm_emit_y_um_rad", label="εy", unit="µm·rad"),
-]
+    frame_index: int
+    inputs: dict[str, float]  # effective, post-baseline-merge
+    outputs: dict[str, Output]
