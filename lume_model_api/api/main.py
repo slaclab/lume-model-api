@@ -43,24 +43,34 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Query, Response
+from fastapi import FastAPI, HTTPException, Query, Request, Response
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from sse_starlette.sse import EventSourceResponse
 
 from lume_model_api.model import live_inputs as live_inputs_module
 from lume_model_api.model import loader
-from lume_model_api.model.evaluate import InvalidInput, UnknownVariable
+from lume_model_api.model.evaluate import InvalidInput, ModelUnusable, UnknownVariable
 
+# Aliased because the route function below is also called `metrics`, and the scrape endpoint
+# has to keep that name to keep its path.
+from . import metrics as metrics_module
 from .pool import ModelPool, PoolDead, PoolFull
 from .schemas import (
+    SOURCE_BASELINE,
+    SOURCE_REQUEST,
     ConfigResponse,
     EvaluateV1Request,
     EvaluateV1Response,
     ModelListEntry,
     SnapshotResponse,
+    live_sources,
 )
+from .serialize import json_safe
 
 # `live` and `all` run the input read loops and the broadcast hubs, `eval` does not.
 ROLES = ("eval", "live", "all")
@@ -80,6 +90,15 @@ def _serve_live_from_env() -> bool:
     if role not in ROLES:
         raise ValueError(f"Unknown LUME_ROLE {role!r}. Use one of: {', '.join(ROLES)}.")
     return role in {"live", "all"}
+
+
+# `Retry-After` on both 503 paths, in seconds, because a client that retries immediately against
+# a pod that is restarting only tightens the loop. The two numbers differ by what the client is
+# waiting for: saturation clears in about one evaluate, whereas an unrecoverable pool clears only
+# when the probes have restarted the pod and its workers have rebuilt their models, which takes 25
+# to 30 seconds per model.
+RETRY_AFTER_SATURATED = "2"
+RETRY_AFTER_RESTARTING = "30"
 
 
 def _discover(name: str) -> str:
@@ -185,6 +204,25 @@ app.add_middleware(
 )
 
 
+@app.exception_handler(RequestValidationError)
+async def validation_error_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    """422 with any non-finite offending value rendered as null.
+
+    FastAPI's own handler echoes the value it rejected back in the error detail and serializes
+    the response with `json.dumps(allow_nan=False)`. `EvaluateV1Request.inputs` now refuses
+    non-finite floats, so the value that caused the 422 is precisely one that handler cannot
+    encode: it raises inside the exception handler, and the rejection would reach the caller as
+    an unhandled 500 with no hint of which field was wrong. Reusing `json_safe` keeps the error
+    body consistent with the response path, which already renders a non-finite float as `null`.
+
+    Registered on the app rather than fixed per field, because the same trap applies to any
+    future numeric field that rejects NaN.
+    """
+    return JSONResponse(
+        status_code=422, content={"detail": json_safe(jsonable_encoder(exc.errors()))}
+    )
+
+
 def _hosted(name: str) -> HostedModel:
     """The named model, or a 404 that says what this process does host."""
     models: dict[str, HostedModel] = getattr(app.state, "models", {})
@@ -211,15 +249,37 @@ def _provider(hosted: HostedModel):
     return hosted.provider
 
 
-async def _read_live_inputs(hosted: HostedModel) -> dict[str, float]:
-    """Live input values, overlaid on the baseline so an unreadable id keeps its default."""
+async def _read_live_inputs(hosted: HostedModel) -> tuple[dict[str, float], dict[str, float]]:
+    """Live input values, overlaid on the baseline so an unreadable id keeps its default.
+
+    Returns `(merged, live)`: the values to evaluate at, and the subset the provider actually
+    read off the machine. Both, because the merge is lossy in exactly the way that matters. An
+    id the provider could not read keeps its design value in `merged`, indistinguishable there
+    from a value that came off the machine, so a caller that wants to tell an operator which is
+    which needs `live` to compare against. That is what fills `input_sources` on a streamed frame
+    and `sources` on a snapshot.
+
+    The overlay is also why the gauges below matter, and they stay: they are the aggregate an
+    alert fires on, whereas the provenance maps are per response. The provider cannot publish
+    them itself, because it lives in the model layer, which never imports the api layer, so the
+    api-layer caller does it from what the provider returned.
+    """
     provider = _provider(hosted)
-    # Channel access blocks, so keep it off the event loop that is serving the SSE clients.
-    # Every producer loop for this model, plus machine-snapshot, shares the one provider and
-    # lands here on different threads, which is why InputProvider documents read_inputs as
-    # safe to call concurrently.
-    values = await asyncio.to_thread(provider.read_inputs)
-    return {**hosted.info.baseline, **values}
+    name = hosted.setting.name
+    metrics_module.LIVE_INPUTS_TOTAL.labels(model=name).set(len(provider.names))
+    try:
+        # Channel access blocks, so keep it off the event loop that is serving the SSE clients.
+        # Every producer loop for this model, plus machine-snapshot, shares the one provider and
+        # lands here on different threads, which is why InputProvider documents read_inputs as
+        # safe to call concurrently.
+        values = await asyncio.to_thread(provider.read_inputs)
+    except Exception:
+        # A raising read means nothing was read, and an alert on the gauge must not go quiet
+        # just because the failure got worse than partial.
+        metrics_module.LIVE_INPUTS_READABLE.labels(model=name).set(0)
+        raise
+    metrics_module.LIVE_INPUTS_READABLE.labels(model=name).set(len(values))
+    return {**hosted.info.baseline, **values}, values
 
 
 def _resolve_outputs(info, outputs: list[str], screen: str | None) -> list[str]:
@@ -274,10 +334,13 @@ async def list_models() -> list[dict]:
     what the k8s probes target.
     """
     models: dict[str, HostedModel] = getattr(app.state, "models", {})
+    # `entry.info` is read straight through with no `if entry.info` guard. The lifespan warms
+    # every pool and assigns `info` before it yields, so a None here would be a real bug in
+    # startup ordering, and a guard would answer with an empty description instead of surfacing it.
     return [
         {
             "name": name,
-            "description": entry.info.description if entry.info else "",
+            "description": entry.info.description,
             "version": entry.version,
         }
         for name, entry in sorted(models.items())
@@ -328,11 +391,18 @@ async def healthz() -> dict:
         # Either the lifespan has not finished or it never ran. Reporting healthy here would
         # let a pod pass its startupProbe before any model was built.
         raise HTTPException(status_code=503, detail="no model is hosted yet")
-    dead = sorted(name for name, entry in models.items() if entry.pool.dead)
+    dead = sorted(
+        f"{name} ({entry.pool.dead_reason})" if entry.pool.dead_reason else name
+        for name, entry in models.items()
+        if entry.pool.dead
+    )
     if dead:
+        # The reason is in the detail because the three causes call for different follow-up:
+        # `worker_lost` points at pod memory, `unusable` at whatever request broke the model,
+        # and `timeout` at LUME_EVALUATE_TIMEOUT_S. The restart is the same either way.
         raise HTTPException(
             status_code=503,
-            detail=f"model pool(s) lost a worker and cannot recover: {', '.join(dead)}",
+            detail=f"model pool(s) cannot recover and need a pod restart: {', '.join(dead)}",
         )
     return {"status": "ok", "models": sorted(models)}
 
@@ -383,13 +453,45 @@ async def evaluate_v1(name: str, req: EvaluateV1Request):
         )
     except PoolDead as exc:
         # 503 like saturation, but retrying will not help until the pod restarts. /healthz is
-        # already reporting unhealthy, so the probes are on their way to doing that.
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+        # already reporting unhealthy, so the probes are on their way to doing that, which is
+        # what the longer `Retry-After` reflects.
+        raise HTTPException(
+            status_code=503,
+            detail=str(exc),
+            headers={"Retry-After": RETRY_AFTER_RESTARTING},
+        ) from exc
     except PoolFull as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=503,
+            detail=str(exc),
+            headers={"Retry-After": RETRY_AFTER_SATURATED},
+        ) from exc
+    except ModelUnusable as exc:
+        # The model broke itself rather than rejecting the request, so this is a server fault
+        # and never a 400. Kept out of the arm below deliberately: reporting it as the caller's
+        # fault is the defect in docs/POISONED_WORKER.md, and it survived because
+        # `InvalidInput` and a numpy `ValueError` are indistinguishable by type.
+        #
+        # A backstop in practice. The worker normally converts this to `ModelPoisoned` and the
+        # pool to `PoolDead`, and what reaches here is the case where in-process recovery
+        # worked, so the worker is serving again and a retry is worth the client's time.
+        raise HTTPException(
+            status_code=503,
+            detail=str(exc),
+            headers={"Retry-After": RETRY_AFTER_SATURATED},
+        ) from exc
     except (UnknownVariable, InvalidInput) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return {**wire, "model": name, "version": hosted.version}
+    # Attached by the sender, not by the serializer, because only the sender knows where the
+    # values came from: this route never reads the machine, so an id is either one the caller
+    # sent or one the baseline merge filled in. The live producer attaches the same key from its
+    # own knowledge (see live_hub._run), and both must, since the SSE path has no response_model
+    # to fill a gap. See SENDER_ADDED in tests/test_wire_shape.py.
+    sources = {
+        input_id: SOURCE_REQUEST if input_id in req.inputs else SOURCE_BASELINE
+        for input_id in wire["inputs"]
+    }
+    return {**wire, "model": name, "version": hosted.version, "input_sources": sources}
 
 
 @app.get(
@@ -399,15 +501,23 @@ async def evaluate_v1(name: str, req: EvaluateV1Request):
     summary="The live input values for one model, read-only",
 )
 async def machine_snapshot(name: str) -> dict:
-    """The live input values, read-only. Ids with no live value report their baseline."""
+    """The live input values, read-only. Ids with no live value report their baseline.
+
+    `sources` says which is which, per id: "live" for a value read off the machine on this call,
+    "baseline" for one the merge filled in from the model's design value because the PV could not
+    be read. Without it the two are the same number on the wire.
+    """
     hosted = _hosted(name)
     # `hub is None` is the single "this process does not do live" signal, shared with
     # live/stream. Two separate checks meant a role change could leave the two routes
     # disagreeing about whether this instance serves live data.
     if hosted.hub is None:
         raise HTTPException(status_code=503, detail="machine-snapshot not served by this instance")
-    values = await _read_live_inputs(hosted)
-    return {"inputs": {key: float(value) for key, value in values.items()}}
+    values, live = await _read_live_inputs(hosted)
+    return {
+        "inputs": {key: float(value) for key, value in values.items()},
+        "sources": live_sources(values, live),
+    }
 
 
 @app.get("/api/v1/models/{name}/live/stream", tags=["model-api"])
@@ -425,11 +535,34 @@ async def live_stream(
     hosted = _hosted(name)
     if hosted.hub is None:
         raise HTTPException(status_code=503, detail="live view not served by this instance")
+    # Imported here, below the role check, for the same reason `lifespan` imports `LiveHub`
+    # lazily: the eval role must never pull this module in.
+    from .live_hub import TooManyStreams
+
     requested = [item for item in (outputs or "").split(",") if item.strip()]
+    # Every rejection has to happen out here, before EventSourceResponse is returned. Once the
+    # response has started there is no status code left to send, so a bad `screen` would become a
+    # 200 carrying an error event, which a client cannot tell from a machine fault.
     resolved = _resolve_outputs(hosted.info, [item.strip() for item in requested], screen)
-    key, q = hosted.hub.subscribe(resolved)
+    try:
+        hosted.hub.check_capacity(resolved)
+    except TooManyStreams as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     async def event_generator():
+        # Subscribing in here rather than above is what keeps the subscriber from leaking.
+        # sse-starlette can be cancelled before it ever calls `__anext__`, and a generator that
+        # never started does not run its `finally`, so a subscribe done outside would leave a
+        # queue in the set and its producer loop evaluating forever with no viewer. Acquire and
+        # release therefore live in the same try/finally.
+        try:
+            key, q = hosted.hub.subscribe(resolved)
+        except TooManyStreams as exc:
+            # `check_capacity` above is what normally makes this a 503. Reaching here means
+            # another client took the last slot in between, which cannot be a status code any
+            # more, so the client is told on the stream instead.
+            yield {"event": "error", "data": json.dumps({"message": str(exc)})}
+            return
         # sse-starlette cancels this generator on client disconnect -> finally unsubscribes,
         # and the loop stops once its last viewer leaves.
         try:
@@ -449,7 +582,7 @@ async def live_stream(
 #   - bake it in, by copying a dist/ into lume_model_api/static/ in a derived image
 #   - mount it at runtime, by pointing LUME_STATIC_DIR at any directory
 # When neither exists the app is a pure API and "/" returns 404, which is why the k8s probes
-# target /api/v1/models instead.
+# target /healthz instead.
 _STATIC = Path(
     os.environ.get("LUME_STATIC_DIR") or Path(__file__).resolve().parent.parent / "static"
 )

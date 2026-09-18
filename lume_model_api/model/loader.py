@@ -69,21 +69,6 @@ class ModelSetting:
     is_demo: bool = False
 
 
-def model_ref_from_env() -> str:
-    return os.environ.get("LUME_MODEL") or DEFAULT_MODEL
-
-
-def kwargs_from_env() -> dict:
-    """Parse `LUME_MODEL_KWARGS`, a JSON object merged over the shortcut's defaults."""
-    raw = os.environ.get("LUME_MODEL_KWARGS", "").strip()
-    if not raw:
-        return {}
-    parsed = json.loads(raw)
-    if not isinstance(parsed, dict):
-        raise ModelRefError(f"LUME_MODEL_KWARGS must be a JSON object, got {type(parsed).__name__}")
-    return parsed
-
-
 def resolve(model_ref: str, overrides: dict | None = None) -> tuple[str, dict, bool]:
     """Resolve a shortcut name or `module:factory` path.
 
@@ -246,48 +231,41 @@ def _models_from_list(raw: str) -> list[ModelSetting]:
     return settings
 
 
-def _model_from_single() -> list[ModelSetting]:
-    """The one-model fallback: `LUME_MODEL` plus `LUME_MODEL_KWARGS`."""
-    reference = model_ref_from_env()
-    factory_path, kwargs, is_demo = resolve(reference, kwargs_from_env())
-    if reference in SHORTCUTS:
-        name = reference
-    else:
-        # A full reference has no URL name of its own, so take the factory function's. Logged
-        # because the resulting URL is not something the operator typed anywhere.
-        name = factory_path.partition(":")[2]
-        if not NAME_PATTERN.match(name):
-            raise ModelRefError(
-                f"LUME_MODEL {reference!r} gives the URL name {name!r}, which is not usable as "
-                'a URL segment. Set LUME_MODELS instead, as {"myname": {"factory": "..."}}.'
-            )
-        logger.info(
-            "LUME_MODEL %s has no URL name of its own, hosting it as %r after its factory "
-            "function. Set LUME_MODELS to choose the name.",
-            reference,
-            name,
-        )
-    return [_setting(name, factory_path, kwargs, is_demo)]
-
-
 def models_from_env() -> list[ModelSetting]:
     """Every model this process should host, in the order `LUME_MODELS` gave them."""
+    # The pre-split monolith that is still deployed at /live-monitor read LUME_MODEL, so an
+    # operator porting a manifest across would otherwise silently serve whatever LUME_MODELS
+    # defaults to instead of the model they intended to configure. Failing hard prevents that.
+    lume_model = os.environ.get("LUME_MODEL", "").strip()
+    if lume_model:
+        suggestion = f"myname={lume_model}" if ":" in lume_model else lume_model
+        raise ModelRefError(
+            f"LUME_MODEL is retired and is no longer read. "
+            f"Set LUME_MODELS={suggestion!r} to host the same model."
+        )
+    lume_model_kwargs = os.environ.get("LUME_MODEL_KWARGS", "").strip()
+    if lume_model_kwargs:
+        raise ModelRefError(
+            f"LUME_MODEL_KWARGS is retired and is no longer read. "
+            f"Embed kwargs in LUME_MODELS instead: "
+            f'LUME_MODELS=\'{{"mymodel": {{"factory": "...", "kwargs": {lume_model_kwargs}}}}}\''
+        )
+
     raw = os.environ.get("LUME_MODELS", "").strip()
     if raw:
-        # The single-model variables are silently dead once LUME_MODELS is set, and the image
-        # ships a LUME_MODELS default, so a pod that overrides only LUME_MODEL would otherwise
-        # look configured and serve something else.
-        for ignored in ("LUME_MODEL", "LUME_MODEL_KWARGS"):
-            if os.environ.get(ignored, "").strip():
-                logger.warning(
-                    "%s is set but LUME_MODELS takes precedence, so %s is ignored. Move it "
-                    "into LUME_MODELS.",
-                    ignored,
-                    ignored,
-                )
         settings = _models_from_json(raw) if raw.startswith("{") else _models_from_list(raw)
     else:
-        settings = _model_from_single()
+        # LUME_MODELS set to an empty string is a common k8s misconfiguration: the pod looks
+        # configured but silently serves the demo model. Warn so the operator notices. An unset
+        # variable is the documented local-dev default, so that path stays silent.
+        if "LUME_MODELS" in os.environ:
+            logger.warning(
+                "LUME_MODELS is set to an empty string. Hosting %r by default. "
+                "Set LUME_MODELS to a model name to serve a real model.",
+                DEFAULT_MODEL,
+            )
+        factory_path, kwargs, is_demo = resolve(DEFAULT_MODEL)
+        settings = [_setting(DEFAULT_MODEL, factory_path, kwargs, is_demo)]
     for setting in settings:
         logger.info(
             "hosting %s -> %s workers=%d at /api/v1/models/%s",

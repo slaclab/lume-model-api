@@ -1,110 +1,99 @@
-# Capacity & performance findings
+# Capacity and performance findings
 
-Measured 2026-08-04 against `cu_hxr_staged` on the S3DF cluster
-(`ad-accel-online-ml`). All numbers here are for that model; other hosted models
-will differ. Purpose: pin per-eval latency `L`, find the right worker count `K` per
-pod, and estimate how many concurrent users we can serve.
+All numbers here are for `cu_hxr_staged` on the S3DF cluster (`ad-accel-online-ml`). Another hosted
+model will differ, so re-measure from `lume_evaluate_seconds`, which carries a `model` label.
+Purpose: pin per-eval latency `L`, find the right worker count `K` per pod, and estimate how many
+concurrent users can be served.
 
-> **Update — 2026-08-24 (production `/metrics`, image `n6`).** Read `lume_evaluate_seconds`
-> straight off the running pods: **p50 ≈ 2.5s per eval, not ~5s.** Eval pod (interactive)
-> mean 2.52s over 48 evals; live pod mean 2.56s over 18k evals — with essentially the entire
-> histogram in the 2–4s bucket on **both**. Takeaways that revise the 2026-08-04 numbers below:
-> - The current model is ~2× faster than the ad-hoc port-forward timing below (older image).
->   **Halve the eval times / roughly double the capacity estimates.** Re-measure to refresh.
-> - **Live and interactive evals cost the same** — the live view is not a cheaper path. The
->   observed "live ~2s vs interactive ~6s" is the interactive client round-trip (300ms debounce
->   + HTTP request/response + full-frame transfer/parse), which the SSE-pushed live view skips.
-> - **Frontend fix (implemented, pending commit/deploy):** the 300ms slider debounce was
->   replaced by **commit-on-release + request sequencing** — eval fires once on pointer/key
->   release and only the newest result renders. Removes the debounce wait without eval-storm /
->   out-of-order risk.
-> - **Live cadence:** the loop runs only while a screen has a subscriber, then ~1 frame / `L`
->   (~2.5s). (Answers the live-cadence TODO below.)
+## Current numbers
 
-## TL;DR
+Read off production `/metrics` on 2026-08-24, image `n6`.
 
-- **`L ≈ 5s` per eval** (p50) — _superseded: prod `/metrics` on `n6` shows ~2.5s; see the
-  2026-08-24 update above._ Still the real bottleneck, not pod count, and **independent of
-  thread count**.
-- **Current pod tuning is already near-optimal.** Keep ~2 CPU cores per worker
-  (`K = cores/2`). Do **not** pack more workers per pod — it makes things worse.
-- **Concurrent no-added-latency evals ≈ `replicas × cores/2`.** Reaching ~100
-  concurrent users at today's `L` needs ~16 pods, so **cutting `L` is higher-leverage
-  than scaling.**
+- **`L` is about 2.5s per eval (p50).** Eval pod (interactive) mean 2.52s over 48 evals, live pod
+  mean 2.56s over 18k evals, with essentially the entire histogram in the 2 to 4s bucket on both.
+- **Live and interactive evals cost the same.** The live view is not a cheaper path. An apparent
+  "live 2s versus interactive 6s" is the interactive client's round trip (request, response,
+  full-frame transfer and parse), which an SSE-pushed frame skips.
+- **`L` is the bottleneck, not pod count, and it is independent of thread count.**
+- **Pod tuning is already near-optimal at about 2 CPU cores per worker (`K = cores/2`).** Do not
+  pack more workers per pod, which measurably makes things worse.
+- **Concurrent no-added-latency evals are about `replicas x cores/2`.** At this `L`, roughly 100
+  interactive users would need about 10 pods, so cutting `L` is higher leverage than scaling.
+- **Live cadence is one frame per `L` (about 2.5s) per output set,** and a producer loop runs only
+  while that set has a subscriber.
+- Idle pod memory is about 2 GiB total with `K=2`, so per-worker RSS is well under 1 GiB and CPU
+  rather than memory is the constraint.
 
-## How it was measured
-
-- Port-forwarded straight to the running pod (bypassing the ingress) and timed
-  `POST /api/v1/evaluate` (the path at the time, now `POST /api/v1/models/cu_hxr_staged/evaluate`),
-  sequential for clean `L`, then small concurrent bursts.
-- For the K/threads A/B: one throwaway Deployment (`K=4, threads=1`, 4-core limit)
-  compared against prod (`K=2, threads=2`, same 4 cores). Throwaway pod deleted after.
-- Idle pod memory ≈ 2 GiB total with `K=2` (so **CPU, not memory, is the constraint**;
-  per-worker RSS is well under 1 GiB).
-
-## Latency `L`
-
-Sequential, n=20, prod config (`K=2`, `threads=2`, 4 cores):
-
-| min | p50 | p95 | mean |
-|---|---|---|---|
-| 4.48s | **5.03s** | 6.75s | 5.18s |
-
-## K / threads A/B (same 4-core budget)
-
-| config | c=1 | c=2 | c=4 | c=8 | max throughput |
-|---|---|---|---|---|---|
-| `K=2 × 2 threads` (prod) | 5.0s | 6.3s | 8.2s | — | **~0.37 eval/s** |
-| `K=4 × 1 thread` (test) | 5.0s | — | 11.8s | 16.2s | ~0.33 eval/s |
-
-**Findings:**
-1. A single eval is ~5s regardless of `threads` → no useful intra-eval parallelism.
-2. `K=4` was **worse** than `K=2` on the same cores (higher latency, lower
-   throughput) → a single eval effectively consumes **~2 cores** even with
-   `threads=1` (library threads leak past the pins and/or the CPU limit throttles).
-3. Sweet spot ≈ **1 worker per 2 cores**. `K=2` on a 4-core pod (current) is right.
-
-## Capacity estimate
-
-"No-added-latency" concurrent evals ≈ `replicas × cores/2`. Interactive users assume
-each waits ~`L` then thinks ~10s (`users ≈ concurrent × (1 + T/L)`, ~3×):
+Capacity, taking "no-added-latency" concurrent evals as `replicas x cores/2` and assuming an
+interactive user waits about `L` then thinks about 10s (`users = concurrent x (1 + T/L)`):
 
 | replicas (K=2, 4-core) | concurrent evals | interactive users |
 |---|---|---|
-| 2 | ~4 | ~12 |
-| 8 | ~16 | ~48 |
-
-At `L ≈ 5s` there is no snappy real-time interaction — every slider change costs ~5s.
-Scaling adds *more* concurrent 5s-evals; it doesn't make them faster.
+| 2 | about 4 | about 20 |
+| 8 | about 16 | about 80 |
 
 ## Caveats
 
-- Numbers come from one node, one screen (OTR3), and baseline inputs (`inputs={}`).
-  Real `L` will vary with track range, particle count, and beam-loss cases — treat
-  p95 here as indicative, not final.
-- `L` is model/lattice/hardware-version dependent; re-measure after upgrades or when
-  switching to a different hosted model.
+- Measured on one node, one screen (OTR3), with baseline inputs (`inputs={}`). Real `L` varies with
+  track range, particle count and beam-loss cases.
+- `L` depends on the model, the lattice and the hardware version. Re-measure after upgrades and
+  when switching to a different hosted model.
 
-## TODOs / follow-ups
+## TODOs and follow-ups
 
-- [ ] **Test with the CPU *limit* removed** (keep the request). The `c=4 → 11.8s`
-      blowup looks like CFS throttling, and nodes are only ~11% utilized — letting
-      pods burst past their limit may raise throughput with no config change. Low-risk,
-      potentially significant.
-- [ ] **Reduce `L` — the biggest lever.** Options: shorter track range, fewer tracked
-      particles, cache results for repeated inputs, GPU, or a lighter surrogate.
-- [ ] **Proper load test** with realistic, *varied* inputs (different screens, track
-      ranges, beam-loss cases) and read `lume_evaluate_seconds` p50/p95 from `/metrics`
-      rather than the ad-hoc timings here.
-- [ ] **Test the `K=2, threads=1` combo** (untested) to confirm whether `threads=2`
-      actually helps under contention or is just wasted.
-- [ ] **Right-size pod memory** from real per-worker RSS under load (idle ≈ 2 GiB for
-      `K=2`); current 5 GiB request is likely generous.
-- [ ] **Least-request load balancing** on the eval Service if a load test shows the
-      round-robin LB skews bursts unevenly across replicas.
-- [ ] **Revisit the live-view cadence.** With the poll period removed it runs
-      as-fast-as-possible ≈ one frame / `L` (~1 frame / 5s per screen) — confirm that's
-      acceptable, or add a floor.
-- [ ] **Re-run these measurements** after any model / lattice / hardware change.
+- [ ] **Test with the CPU *limit* removed** (keep the request). The `c=4` blow-up in the history
+      below looks like CFS throttling, and nodes are only about 11% utilized, so letting pods burst
+      past their limit may raise throughput with no config change. Low risk, potentially
+      significant.
+- [ ] **Reduce `L`, the biggest lever.** Options: shorter track range, fewer tracked particles,
+      caching results for repeated inputs, GPU, or a lighter surrogate.
+- [ ] **Proper load test** with realistic, varied inputs (different screens, track ranges,
+      beam-loss cases), reading `lume_evaluate_seconds` p50 and p95 from `/metrics`.
+- [ ] **Test the `K=2, threads=1` combo** (untested) to confirm whether `threads=2` actually helps
+      under contention or is just wasted.
+- [ ] **Right-size pod memory** from real per-worker RSS under load. Idle is about 2 GiB for `K=2`,
+      so the current 5 GiB request is likely generous.
+- [ ] **Least-request load balancing** on the eval Service if a load test shows the round-robin LB
+      skews bursts unevenly across replicas.
+- [x] **Revisit the live-view cadence.** Answered by the 2026-08-24 measurement above: with no poll
+      period the loop runs as fast as it can, which is one frame per `L` (about 2.5s) per output set,
+      and only while someone is watching. No floor needed.
+- [ ] **Re-run these measurements** after any model, lattice or hardware change.
 
-Related: [`SCALING.md`](./SCALING.md) (how to scale, KEDA/Prometheus setup).
+## History: the superseded 2026-08-04 measurement
+
+These numbers came from ad-hoc timings against an older image and are kept only to explain the
+A/B conclusions above, which still hold. **The latency figures are superseded by the 2026-08-24
+production numbers: they are roughly 2x too slow, so any capacity estimate derived from them is
+about half of what the current model delivers.**
+
+Method: port-forwarded straight to the running pod, bypassing the ingress, timing what was then
+`POST /api/v1/evaluate` (now `POST /api/v1/models/cu_hxr_staged/evaluate`), sequential for a clean
+`L` and then in small concurrent bursts. For the K and threads A/B, one throwaway Deployment
+(`K=4`, `threads=1`, 4-core limit) against prod (`K=2`, `threads=2`, same 4 cores). The throwaway
+pod was deleted afterwards.
+
+Latency, sequential, n=20, prod config:
+
+| min | p50 | p95 | mean |
+|---|---|---|---|
+| 4.48s | 5.03s | 6.75s | 5.18s |
+
+K and threads A/B on the same 4-core budget:
+
+| config | c=1 | c=2 | c=4 | c=8 | max throughput |
+|---|---|---|---|---|---|
+| `K=2 x 2 threads` (prod) | 5.0s | 6.3s | 8.2s | n/a | about 0.37 eval/s |
+| `K=4 x 1 thread` (test) | 5.0s | n/a | 11.8s | 16.2s | about 0.33 eval/s |
+
+What that established, and what still stands:
+
+1. A single eval takes the same time regardless of `threads`, so there is no useful intra-eval
+   parallelism.
+2. `K=4` was worse than `K=2` on the same cores, in both latency and throughput, so a single eval
+   effectively consumes about 2 cores even at `threads=1`. Library threads leak past the pins and
+   the CPU limit throttles.
+3. The sweet spot is about one worker per 2 cores, so `K=2` on a 4-core pod is right.
+
+Related: [`SCALING.md`](./SCALING.md) for how to scale and the KEDA and Prometheus setup, and
+[`../../docs/DEPLOY.md`](../../docs/DEPLOY.md) for pod sizing.

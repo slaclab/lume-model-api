@@ -1,7 +1,11 @@
 # Eval pool. Stateless: serves GET /api/v1/models, each model's config and evaluate routes,
-# plus a UI at "/" if one was baked into the image or mounted via LUME_STATIC_DIR. This image
-# ships none, so "/" 404s.
-# A UI repo overlays this Deployment's image with its own derived one.
+# and GET /healthz for the probes.
+#
+# Ships no UI, so "/" is a 404. The recommended way to put a UI in front of this API is a
+# separate static nginx Deployment, so a UI release does not restart the model pods and does
+# not have to track an API image tag. See docs/DEPLOY.md. Baking one into a derived image, or
+# mounting it with LUME_STATIC_DIR, also works but couples the two releases.
+#
 # EPICS-free (LUME_ROLE=eval, no EPICS configmap) so it scales freely.
 # Baseline 2 for HA (avoids ~25-30s model-cold-start downtime on a single-pod restart).
 # When KEDA is enabled (keda-scaledobject.yaml) its minReplicaCount governs and this
@@ -25,7 +29,7 @@ spec:
         - name: lume-model-api
           # Tag is pinned via kustomization.yaml `images:` (immutable per test).
           image: ghcr.io/slaclab/lume-model-api
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
           ports:
             - containerPort: 8000
               name: http

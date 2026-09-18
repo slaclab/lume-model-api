@@ -8,6 +8,14 @@ ARG PYTHON_VERSION=3.12
 ARG LCLS_LATTICE_REF=c6b8defbf2ba83bf8f5af70191c893de361657d1 # 52ad1a5ddd00aa57a89a4fc7f2fa1a2363216ae8
 ARG FACET_LATTICE_REF=d8b2e3f1db4d8f34b95cab5e1a3959f073ac165f
 ARG VA_REF=043a2f0fca3a8c7e1f837aa226a42a167a78f9fb
+# The lume stack virtual-accelerator builds on. Pinned here rather than left to VA's bare
+# requirements, because those resolve to whatever PyPI serves on the day of the build, which
+# is how the running pod ended up with contents nobody could name. See the install step below
+# for why lume-bmad in particular has to come from a git ref.
+ARG LUME_BMAD_REF=8f3ed201d546878441e06aced506fd4411c42492
+ARG LUME_BASE_VERSION=0.6.0
+ARG LUME_TORCH_VERSION=3.0.0
+ARG LUME_CHEETAH_VERSION=0.1.0
 ARG DOCKER_PLATFORM=linux/amd64
 
 # --- Python runtime with Bmad: hosts a LUMEModel ---
@@ -16,6 +24,10 @@ ARG PYTHON_VERSION
 ARG LCLS_LATTICE_REF
 ARG FACET_LATTICE_REF
 ARG VA_REF
+ARG LUME_BMAD_REF
+ARG LUME_BASE_VERSION
+ARG LUME_TORCH_VERSION
+ARG LUME_CHEETAH_VERSION
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -64,15 +76,37 @@ RUN git clone https://github.com/slaclab/lcls-lattice.git /opt/lcls-lattice \
 RUN git clone https://github.com/slaclab/facet2-lattice.git /opt/facet-lattice \
     && cd /opt/facet-lattice && git checkout ${FACET_LATTICE_REF}
 
-# virtual-accelerator @ pinned ref. The new VA resolves its own lume-bmad / lume-torch /
-# lume-cheetah pins, so we no longer force-reinstall them here.
-# NOTE: a build has not been verified since the VA bump to 043a2f0. Do not bump the image
-# tag in deploy/kubernetes/kustomization.yaml until a successful build is confirmed.
+# virtual-accelerator @ pinned ref, plus explicit pins for the lume stack underneath it.
+#
+# The lume-bmad git ref is load-bearing, not belt and braces. VA declares a bare `lume-bmad`
+# requirement, so an unpinned build resolves it to the PyPI release v0.1.0 (2026-07-13), which
+# constructs every `<ele>_beam` variable without `read_only=True`. lume-base defaults
+# `Variable.read_only` to False and does not set pydantic's `validate_default`, so
+# `ReadOnlyActionMixin`'s own guard against exactly that never fires. The beams then reach
+# `introspect.describe` claiming to be writable, it drops them as writable non-scalars, and the
+# API publishes screen images with no particles and `screens: []`. lume-bmad fixed the call
+# site in 110230c9 (2026-08-25) and has not tagged a release since, so the ref stays until a
+# tag past that commit exists.
+#
+# Installed before VA so its bare requirements are already satisfied and pip never fetches the
+# release that drops the beams.
 RUN python -m pip install --upgrade setuptools wheel \
     && python -m pip install --upgrade --index-url https://download.pytorch.org/whl/cpu torch \
+    && python -m pip install \
+         "lume-base==${LUME_BASE_VERSION}" \
+         "lume-torch==${LUME_TORCH_VERSION}" \
+         "lume-cheetah==${LUME_CHEETAH_VERSION}" \
+         "lume-bmad @ git+https://github.com/lume-science/lume-bmad@${LUME_BMAD_REF}" \
     && git clone https://github.com/slaclab/virtual-accelerator.git /opt/virtual-accelerator \
     && cd /opt/virtual-accelerator && git checkout ${VA_REF} \
     && python -m pip install -e ".[surrogate,bmad]"
+
+# Fail the build, rather than the pod, if the resolved lume-bmad predates the beam fix. A pod
+# built on the older release starts healthy and serves every scalar and image, so the only
+# symptom is an empty `screens` list on a route nothing probes. The source check is deliberate:
+# the flag is set at the call site, so no importable constant records whether this build has it.
+RUN python -c "import inspect, lume_bmad.model as m; src = inspect.getsource(m.LUMEBmadModel._refresh_dynamic_action_variables); assert 'read_only=True' in src, 'lume-bmad predates 110230c9, so every <ele>_beam variable would be dropped from the published outputs'" \
+    && python -m pip freeze | grep -iE 'lume|virtual-accelerator'
 
 # App code, then the install. This order is load-bearing and was verified by reversing it:
 # `pip install -e .` with the package directory absent finds no packages, reports

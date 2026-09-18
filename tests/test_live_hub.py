@@ -16,8 +16,9 @@ import asyncio
 import json
 
 import pytest
+from prometheus_client import REGISTRY
 
-from lume_model_api.api.live_hub import LiveHub
+from lume_model_api.api.live_hub import GENERIC_ERROR_MESSAGE, LiveHub, TooManyStreams
 from lume_model_api.api.pool import PoolDead
 
 # Long enough for the producer to complete several frames, short enough to keep the suite fast.
@@ -27,9 +28,17 @@ SETTLE_S = 0.06
 class StubPool:
     """Stands in for `ModelPool`, recording calls and optionally failing."""
 
-    def __init__(self, error: Exception | None = None, error_times: int | None = None) -> None:
+    def __init__(
+        self,
+        error: Exception | None = None,
+        error_times: int | None = None,
+        max_inflight: int = 8,
+    ) -> None:
         self.error = error
         self.error_times = error_times  # None means "fail forever"
+        # The hub reads this to cap its producer loops, so a stub without it is not a stand-in
+        # for `ModelPool`. 8 is the live Deployment's value (2 workers, 4x).
+        self.max_inflight = max_inflight
         self.calls: list[dict] = []
 
     async def evaluate(self, inputs, outputs, kind="interactive", frame_index=0, **kwargs):
@@ -49,12 +58,17 @@ class StubPool:
         }
 
 
-async def _read_inputs() -> dict:
-    return {"KNOB": 1.0}
+async def _read_inputs() -> tuple[dict, dict]:
+    """`(merged, live)`, matching `main._read_live_inputs`. Here every id read off the machine."""
+    return {"KNOB": 1.0}, {"KNOB": 1.0}
 
 
-def _hub(pool=None, read_inputs=_read_inputs) -> LiveHub:
-    return LiveHub(pool or StubPool(), read_inputs, model="demo", version="demo")
+def _hub(pool=None, read_inputs=_read_inputs, **kwargs) -> LiveHub:
+    return LiveHub(pool or StubPool(), read_inputs, model="demo", version="demo", **kwargs)
+
+
+def _stream_gauge(model: str = "demo") -> float | None:
+    return REGISTRY.get_sample_value("lume_live_streams", {"model": model})
 
 
 def _run(coro):
@@ -180,6 +194,30 @@ def test_every_frame_carries_model_and_version() -> None:
     _run(scenario())
 
 
+def test_every_frame_says_where_each_input_value_came_from() -> None:
+    """An id whose PV did not read carries the model's design value, which looks identical.
+
+    If this assertion fails, a live pod that has quietly degraded to streaming design values is
+    indistinguishable at the response level from one reading the real machine, which is the
+    whole reason the field exists. The SSE path has no response_model to fill the key in, so a
+    producer that stops attaching it sends frames with `input_sources` genuinely absent rather
+    than empty.
+    """
+
+    async def scenario():
+        async def read_partial() -> tuple[dict, dict]:
+            # SOLENOID is in the merged values from the baseline alone: its PV did not read.
+            return {"KNOB": 1.0, "SOLENOID": 2.0}, {"KNOB": 1.0}
+
+        hub = LiveHub(StubPool(), read_partial, model="demo", version="demo")
+        _, queue = hub.subscribe(["s"])
+        frame = await _first_frame(queue)
+        assert frame["input_sources"] == {"KNOB": "live", "SOLENOID": "baseline"}
+        await hub.shutdown()
+
+    _run(scenario())
+
+
 def test_frame_index_increments_on_the_stream() -> None:
     async def scenario():
         hub = _hub()
@@ -205,8 +243,8 @@ def test_non_finite_values_are_nulled_so_a_frame_is_valid_json() -> None:
     async def scenario():
         pool = StubPool()
 
-        async def read_nan() -> dict:
-            return {"KNOB": float("nan")}
+        async def read_nan() -> tuple[dict, dict]:
+            return {"KNOB": float("nan")}, {"KNOB": float("nan")}
 
         hub = LiveHub(pool, read_nan, model="demo", version="demo")
         _, queue = hub.subscribe(["s"])
@@ -231,12 +269,37 @@ def test_a_transient_error_is_broadcast_and_the_loop_survives() -> None:
         _, queue = hub.subscribe(["s"])
         first = await asyncio.wait_for(queue.get(), timeout=2.0)
         assert first["event"] == "error"
-        assert "solver blew up" in first["data"]["message"]
+        assert first["data"]["message"] == GENERIC_ERROR_MESSAGE
         # The loop kept going, so a later frame still arrives.
         assert (await _first_frame(queue))["model"] == "demo"
         await hub.shutdown()
 
     _run(scenario())
+
+
+def test_the_exception_text_of_a_transient_error_never_reaches_a_subscriber(caplog) -> None:
+    """Subscribers are browsers, so the message a solver raised is not theirs to see.
+
+    An exception string from inside a model routinely carries absolute paths, lattice element
+    names and library internals. If this assertion fails, all of that is being pushed to every
+    connected browser, and the operator has lost the traceback too, since the log line here is
+    the only place it now exists.
+    """
+
+    async def scenario():
+        pool = StubPool(error=RuntimeError("/opt/lattice/secret.bmad rejected element Q01"))
+        hub = _hub(pool)
+        _, queue = hub.subscribe(["s"])
+        item = await asyncio.wait_for(queue.get(), timeout=2.0)
+        assert item["event"] == "error"
+        assert "secret.bmad" not in json.dumps(item["data"])
+        await hub.shutdown()
+
+    with caplog.at_level("ERROR", logger="lume_model_api.api.live_hub"):
+        _run(scenario())
+    # Server side keeps everything, including the traceback logger.exception attaches.
+    assert "secret.bmad" in caplog.text
+    assert "RuntimeError" in caplog.text
 
 
 def test_a_dead_pool_stops_the_loop_after_one_error() -> None:
@@ -349,3 +412,132 @@ def test_the_producer_asks_the_pool_for_live_kind_and_the_resolved_outputs() -> 
 @pytest.mark.parametrize("outputs", [["s"], ["s", "x.beta"]])
 def test_key_for_is_sorted_and_deduplicated(outputs: list[str]) -> None:
     assert LiveHub.key_for(outputs + outputs) == tuple(sorted(set(outputs)))
+
+
+# --- how many producer loops one hub will run -------------------------------------
+
+
+def test_the_stream_cap_defaults_to_the_pools_in_flight_limit() -> None:
+    """More loops than in-flight slots cannot help, so that is the natural ceiling.
+
+    Past it the extra loops only collect PoolFull errors while dividing every legitimate
+    viewer's frame rate by the number of loops.
+    """
+
+    async def scenario():
+        hub = _hub(StubPool(max_inflight=3))
+        for index in range(3):
+            hub.subscribe([f"out{index}"])
+        with pytest.raises(TooManyStreams):
+            hub.subscribe(["one.too.many"])
+        assert len(hub._streams) == 3
+        await hub.shutdown()
+
+    _run(scenario())
+
+
+def test_the_stream_cap_can_be_overridden() -> None:
+    async def scenario():
+        hub = _hub(StubPool(max_inflight=8), max_streams=1)
+        hub.subscribe(["s"])
+        with pytest.raises(TooManyStreams):
+            hub.subscribe(["x.beta"])
+        await hub.shutdown()
+
+    _run(scenario())
+
+
+def test_joining_an_existing_output_set_is_never_capped() -> None:
+    """The cap counts loops, not viewers. Sharing a loop is exactly what the hub is for."""
+
+    async def scenario():
+        hub = _hub(StubPool(max_inflight=1))
+        _, first = hub.subscribe(["s"])
+        _, second = hub.subscribe(["s"])
+        assert len(hub._streams) == 1
+        await _first_frame(second)
+        await hub.shutdown()
+
+    _run(scenario())
+
+
+def test_a_disconnected_viewer_frees_a_slot() -> None:
+    """Otherwise the cap would be a one-way ratchet and the pod would need a restart."""
+
+    async def scenario():
+        hub = _hub(StubPool(max_inflight=1))
+        key, queue = hub.subscribe(["s"])
+        hub.unsubscribe(key, queue)
+        hub.subscribe(["x.beta"])  # the slot came back
+        await hub.shutdown()
+
+    _run(scenario())
+
+
+def test_the_cap_message_tells_the_client_what_to_do_instead() -> None:
+    """Retrying does not help, so a message that does not say so produces a polling client."""
+
+    async def scenario():
+        hub = _hub(max_streams=1)
+        hub.subscribe(["s"])
+        with pytest.raises(TooManyStreams) as excinfo:
+            hub.check_capacity(["x.beta"])
+        message = str(excinfo.value)
+        assert "already streaming" in message
+        assert "Retrying" in message
+        await hub.shutdown()
+
+    _run(scenario())
+
+
+def test_check_capacity_does_not_start_a_loop() -> None:
+    """The SSE route calls it before its response starts, and must not acquire anything."""
+
+    async def scenario():
+        hub = _hub()
+        hub.check_capacity(["s"])
+        assert hub._streams == {}
+
+    _run(scenario())
+
+
+def test_the_stream_gauge_follows_the_live_loop_count() -> None:
+    """The degraded state has to be alertable, and a leaked loop is only visible here."""
+
+    async def scenario():
+        hub = LiveHub(StubPool(), _read_inputs, model="gaugehub", version="demo")
+        assert _stream_gauge("gaugehub") == 0
+        key, queue = hub.subscribe(["s"])
+        hub.subscribe(["s", "x.beta"])
+        assert _stream_gauge("gaugehub") == 2
+        hub.unsubscribe(key, queue)
+        assert _stream_gauge("gaugehub") == 1
+        await hub.shutdown()
+        assert _stream_gauge("gaugehub") == 0
+
+    _run(scenario())
+
+
+# --- frame_index is monotonic per hub --------------------------------------------
+
+
+def test_frame_index_does_not_restart_when_the_last_viewer_leaves() -> None:
+    """docs/API.md promises a counter that only increases, and a UI may key on it.
+
+    Per stream it restarted at 0 every time a stream's last viewer left and a new one arrived,
+    so an ordinary browser reload made frame_index go backwards.
+    """
+
+    async def scenario():
+        hub = _hub()
+        key, queue = hub.subscribe(["s"])
+        await asyncio.sleep(SETTLE_S)
+        highest = (await _first_frame(queue))["frame_index"]
+        assert highest >= 1
+        hub.unsubscribe(key, queue)
+        await asyncio.sleep(0.02)
+        _, fresh = hub.subscribe(["s"])
+        assert (await _first_frame(fresh))["frame_index"] > highest
+        await hub.shutdown()
+
+    _run(scenario())

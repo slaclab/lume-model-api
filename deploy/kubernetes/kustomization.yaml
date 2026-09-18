@@ -20,4 +20,4 @@ resources:
 # ported, and are deleted at the cut-over. See docs/DEPLOY.md.
 images:
   - name: ghcr.io/slaclab/lume-model-api
-    newTag: n8
+    newTag: dev

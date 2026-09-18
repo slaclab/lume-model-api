@@ -116,8 +116,11 @@ LUME_MODELS='{
 ```
 
 Any factory reachable on `sys.path` works with a full `module.path:factory_function` reference
-and no code change. See [`docs/ADDING_A_MODEL.md`](docs/ADDING_A_MODEL.md) for the complete
-`LUME_MODELS` rules, including the `LUME_MODEL` single-model fallback.
+and no code change, given a URL name to answer on. An unset `LUME_MODELS` hosts `demo`, and
+`LUME_MODELS=""` also hosts `demo` but logs a warning, since an empty value in a k8s env block is a
+pod that looks configured and is not. The older `LUME_MODEL` and `LUME_MODEL_KWARGS` are retired and
+setting either is now a startup error. See
+[`docs/ADDING_A_MODEL.md`](docs/ADDING_A_MODEL.md#the-rules-in-full) for the complete rules.
 
 A model's own dependencies and its lattice location are the model's business. `LCLS_LATTICE` or `FACET2_LATTICE` must be set for the models
 that need them, and virtual-accelerator raises a clear error when one is missing.
@@ -133,15 +136,17 @@ implicit default model, so `/api/config` and the other old paths return 404.
 | --- | --- |
 | `GET /api/v1/models` | `[{name, description, version}]` for every model this process hosts, sorted by name. |
 | `GET /api/v1/models/{name}/config` | Inputs with ranges, units and defaults, outputs with kinds, and screens. |
-| `POST /api/v1/models/{name}/evaluate` | Stateless evaluation. Same for every caller. |
-| `GET /api/v1/models/{name}/machine-snapshot` | The current live input values, read-only. |
-| `GET /api/v1/models/{name}/live/stream?screen=` or `?outputs=a,b` | SSE `frame` events with the same body as evaluate. |
+| `POST /api/v1/models/{name}/evaluate` | Stateless evaluation. Same for every caller. `input_sources` says which effective inputs you sent and which the baseline filled in. |
+| `GET /api/v1/models/{name}/machine-snapshot` | The current live input values, read-only, with `sources` marking each one `live` or `baseline`. |
+| `GET /api/v1/models/{name}/live/stream?screen=` or `?outputs=a,b` | SSE `frame` events with the same body as evaluate. 503 when the hub already runs its maximum number of distinct producer loops. |
 | `GET /metrics` | Prometheus, every series labelled by `model`. KEDA autoscales the eval pool on `lume_pool_inflight`. |
-| `GET /healthz` | Liveness and readiness for the k8s probes. 503 until every pool has warmed, and again once any pool loses a worker. Outside the `/api/v1` contract and absent from `openapi.json`. |
+| `GET /healthz` | What all three k8s probes target, on both Deployments. 503 until every pool has warmed, and again once any pool loses a worker. Deliberately outside the `/api/v1` contract and absent from `openapi.json`, so no client should pin it. |
 
-A client reads `GET /api/v1/models` and never hard-codes a model name. The `model` field in
-every response body is the URL name, which is how a client matches a fetched config back to the
-entry it selected.
+A client reads `GET /api/v1/models` and never hard-codes a model name. That route is pure client
+discovery and is deliberately not the probe target, because a pod hosting several models keeps
+listing the ones that still work when another model's pool has died. The `model` field in every
+response body is the URL name, which is how a client matches a fetched config back to the entry it
+selected.
 
 There is deliberately no second, UI-private evaluate endpoint. A second shape would mean every
 new UI reimplemented the unit handling, which is the duplication this service removes.
@@ -150,12 +155,11 @@ new UI reimplemented the unit handling, which is the duplication this service re
 
 | Variable | Default | What it does |
 | --- | --- | --- |
-| `LUME_MODELS` | unset | Every model to host, keyed by URL name. A JSON object, or a comma list of shortcut names and `name=module:function` items. |
-| `LUME_MODEL` | `demo` | Single-model fallback, used only when `LUME_MODELS` is unset or empty. Shortcut name or `module.path:factory_function`. |
-| `LUME_MODEL_KWARGS` | `{}` | JSON object of kwargs for `LUME_MODEL`, merged over the shortcut's defaults. Ignored with a warning when `LUME_MODELS` is set. |
+| `LUME_MODELS` | unset (hosts `demo`) | Every model to host, keyed by URL name. A JSON object, or a comma list of shortcut names and `name=module:function` items. |
 | `LUME_ROLE` | `all` | `eval` serves the list, config and evaluate, `live` serves the stream and snapshot, `all` serves both. |
 | `LUME_POOL_WORKERS` | `4` | Default model instances (subprocesses) per model. Per-model, not a pod budget, so three models at the default means twelve workers. |
 | `LUME_MAX_INFLIGHT` | `4 * workers` | Default in-flight evaluates per model before the service returns 503. Also per-model. |
+| `LUME_EVALUATE_TIMEOUT_S` | `0` (disabled) | Float seconds. When set, an evaluate that overruns marks that model's pool dead, so `/healthz` fails and the pod restarts, because a subprocess evaluate cannot be cancelled. Any value must sit well above the 25 to 30 second model build and the roughly 2.5 seconds an evaluate takes. |
 | `LUME_WORKER_THREADS` | `1` | Per-worker BLAS/OMP thread cap. |
 | `LUME_LIVE_SOURCE` | `epics` | `epics` reads each input id as a PV, `synthetic` wiggles inputs around their defaults. |
 | `LUME_LIVE_INPUTS` | all inputs | JSON list restricting which input ids the live source reads. |
@@ -215,18 +219,24 @@ elsewhere. See [`docs/DEPLOY.md`](docs/DEPLOY.md).
 
 ## Docs
 
-- [`docs/API.md`](docs/API.md) is the full endpoint reference with curl and Python examples,
-  the output kinds, the units convention and the SSE details. Read it before writing a client.
-- [`docs/ADDING_A_MODEL.md`](docs/ADDING_A_MODEL.md) covers hosting a different `LUMEModel`,
-  what the model must expose for each feature to appear, and the full `LUME_MODELS` rules for
-  hosting several at once.
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) explains the layering, the request flow and
-  the process pool.
-- [`docs/DEPLOY.md`](docs/DEPLOY.md) covers the image build, kustomize apply and scaling.
+One canonical home per topic. Every other file cross-references rather than repeating.
+
+- [`docs/API.md`](docs/API.md) is the endpoint reference and the wire contract, with curl and
+  Python examples, the output kinds, the units convention, the SSE details and the metrics. Read it
+  before writing a client.
+- [`docs/ADDING_A_MODEL.md`](docs/ADDING_A_MODEL.md) is the model author's contract: what a model
+  must expose for each feature to appear, and the full `LUME_MODELS` rules.
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) explains the layering, the request flow, the
+  process pool, the live hub, the baseline merge and where the published metadata comes from.
+- [`docs/DEPLOY.md`](docs/DEPLOY.md) covers the image build, the kustomize apply, the probes, pod
+  sizing, scaling and the packaging traps.
 - [`docs/MIGRATING_LUME_VISUALIZATIONS.md`](docs/MIGRATING_LUME_VISUALIZATIONS.md) maps the
   old backend's API onto this one, field by field, for porting the original React UI.
-- [`AGENTS.md`](AGENTS.md) lists the sharp edges that are invisible in the code. Read it
-  before changing anything structural, human or agent.
+- [`docs/MIGRATING_INFERENCE_SERVICE.md`](docs/MIGRATING_INFERENCE_SERVICE.md) is the step-by-step
+  plan for absorbing the MLflow-backed `inference-service` into this one, written for someone who
+  knows that service and not this one.
+- [`AGENTS.md`](AGENTS.md) is a short index of the sharp edges that are invisible in the code. Read
+  it before changing anything structural, human or agent.
 
 ## The contract
 

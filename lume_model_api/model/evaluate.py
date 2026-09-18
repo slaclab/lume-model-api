@@ -12,12 +12,13 @@ the pool worker, so nothing large crosses the process boundary un-encoded.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
 import numpy as np
 
-from lume_model_api.model.introspect import variable_kind
+from lume_model_api.model.introspect import variable_class, variable_kind
 
 # An omitted `max_particles` must not ship the whole beam, so the default is a cap and not
 # "unbounded".
@@ -66,8 +67,23 @@ class UnknownVariable(ValueError):
 class InvalidInput(ValueError):
     """The model rejected a control value: wrong type or outside its declared range.
 
-    Raised from the model's own `set()` validation, so the message is whatever lume or the
-    model said. Maps to HTTP 400, because the request was wrong and a retry will not help.
+    Raised by `_prevalidate` below, which runs the same checks `LUMEModel.set` runs, so the
+    message is whatever lume or the model said. Maps to HTTP 400, because the request was
+    wrong and a retry will not help.
+    """
+
+
+class ModelUnusable(RuntimeError):
+    """The model instance failed in a way that is not attributable to the request.
+
+    `_prevalidate` has already excluded every fault `LUMEModel.set` would blame on the
+    caller, so anything still escaping `model.set()` is the model's own failure. Maps to HTTP
+    503, and in the pool it latches the worker (see `api/pool.py`).
+
+    `RuntimeError` rather than `ValueError` on purpose. `UnknownVariable` and `InvalidInput`
+    are both `ValueError`s, and `api.main.evaluate_v1` catches that pair to answer 400, so a
+    `ValueError` subclass here would be reported as the caller's fault again, which is the
+    defect documented in `docs/POISONED_WORKER.md`.
     """
 
 
@@ -79,15 +95,6 @@ class EvaluateResult:
     # id -> {"kind": ..., ...}. Arrays are still numpy at this point.
     outputs: dict[str, dict]
 
-
-def _dedupe(ids: Sequence[str]) -> list[str]:
-    seen: set[str] = set()
-    ordered: list[str] = []
-    for name in ids:
-        if name not in seen:
-            seen.add(name)
-            ordered.append(name)
-    return ordered
 
 
 def _coerce_control(variable, value):
@@ -102,6 +109,41 @@ def _coerce_control(variable, value):
         return value  # an enum or string control, passed through untouched
 
 
+def _prevalidate(model, applied: Mapping[str, Any]) -> None:
+    """Run the checks `LUMEModel.set` runs, here, where the outcome can be attributed.
+
+    This duplicates lume's own validation loop deliberately. `LUMEModel.set` completes that
+    whole loop before it calls `_set`, so a failure raised here is the complete set of faults
+    the model would blame on the request, and anything raised from inside `model.set()`
+    afterwards is by construction the model failing rather than the caller being wrong. That
+    is what lets the classification below be exception-type-free.
+
+    Inferring the same thing from the exception type after the fact does not work, which is
+    the bug in `docs/POISONED_WORKER.md`: lume raises `ValueError` and `TypeError` for a bad
+    value, and so do numpy and a broken lattice. `lume.exceptions.ReadOnlyError` subclasses
+    `TypeError`, so it shares an arm with a genuine model failure too.
+    """
+    from lume.variables import Variable
+
+    # Fetched once: `supported_variables` is a property on every model, and on an action-backed
+    # one it rebuilds the dict per access.
+    variables = model.supported_variables
+    for name, value in applied.items():
+        variable = variables.get(name)
+        if variable is None:
+            raise InvalidInput(f"Variable {name!r} is not supported by the model.")
+        if not isinstance(variable, Variable):
+            raise InvalidInput(f"Variable {name!r} is not a valid Variable instance.")
+        if getattr(variable, "read_only", False):
+            raise InvalidInput(f"Variable {name!r} is read-only and cannot be set.")
+        try:
+            # No `config` argument, so each variable's own `default_validation_config`
+            # decides whether the range is enforced, exactly as `LUMEModel.set` leaves it.
+            variable.validate_value(value)
+        except (TypeError, ValueError) as exc:
+            raise InvalidInput(f"Model rejected input {name!r}: {exc}") from exc
+
+
 def _plain(value):
     """Make a value JSON-safe without assuming it is numeric."""
     if isinstance(value, np.generic):
@@ -111,7 +153,7 @@ def _plain(value):
     return value
 
 
-def _particles_payload(beam, max_particles: int | None) -> dict:
+def _particles_payload(beam, max_particles: int | None, output_id: str = "") -> dict:
     # A missing or non-positive cap falls back to the default rather than meaning
     # "unbounded". A negative one would otherwise ship the whole beam, which on a real model
     # is hundreds of thousands of particles in one response.
@@ -131,6 +173,17 @@ def _particles_payload(beam, max_particles: int | None) -> dict:
             coords[key] = np.asarray(beam[key], dtype=float)
         except Exception:  # coordinate absent on this beam object
             continue
+
+    if not coords:
+        # A genuinely empty ParticleGroup still yields coords with zero-length arrays, so
+        # the real-but-empty case stays distinguishable from this total failure to read any
+        # coordinate at all. Total failure means the output variable is None or is an
+        # unexpected type, which the caller should surface rather than return a silent n=0.
+        label = f" {output_id!r}" if output_id else ""
+        raise TypeError(
+            f"Could not read any coordinate from beam output{label}. "
+            "The output variable may be None or an unexpected type."
+        )
 
     n = len(next(iter(coords.values()))) if coords else 0
     if n > cap:
@@ -194,7 +247,7 @@ def evaluate(
         if name in settable
     }
 
-    requested_outputs = _dedupe(outputs or [])
+    requested_outputs = list(dict.fromkeys(outputs or []))
     unknown_outputs = [name for name in requested_outputs if name not in info.output_ids]
     if unknown_outputs:
         raise UnknownVariable(
@@ -207,13 +260,24 @@ def evaluate(
         name: _coerce_control(variables[name], value) for name, value in effective.items()
     }
     if applied:
+        # Every client fault is rejected here, before the model runs, so the catch below does
+        # not have to tell one apart from a model failure.
+        _prevalidate(model, applied)
         try:
             model.set(applied)
-        except (TypeError, ValueError) as exc:
-            # lume raises these from `validate_value`: a non-numeric value, or one outside
-            # `value_range` when the variable validates with config "error". Anything else
-            # (a solver crash, say) is a genuine server error and propagates as one.
-            raise InvalidInput(f"Model rejected the inputs: {exc}") from exc
+        except asyncio.CancelledError:
+            # A cancelled request is neither a client fault nor a broken model, and turning
+            # one into `ModelUnusable` would latch the worker and restart the pod every time a
+            # live viewer disconnects mid-frame.
+            raise
+        except BaseException as exc:
+            # Deliberately everything else, including `BaseException`: a `KeyboardInterrupt`
+            # landing inside a long Tao call leaves the instance in exactly the half-applied
+            # state this exists to report, so it must not escape unclassified.
+            raise ModelUnusable(
+                "The model failed while applying inputs and may be left inconsistent: "
+                f"{type(exc).__name__}: {exc}"
+            ) from exc
 
     values = model.get(requested_outputs) if requested_outputs else {}
 
@@ -222,13 +286,14 @@ def evaluate(
         variable = variables[name]
         value = values.get(name)
         unit = getattr(variable, "unit", None) or ""
-        # Same classifier the config route publishes, so the kind a caller reads there is the
-        # kind it gets back here.
+        # Same classifiers the config route publishes, so the kind and variable_class a caller
+        # reads there are the ones it gets back here.
         kind = variable_kind(variable)
+        declared_class = variable_class(variable)
         if kind == "scalar":
             result[name] = {"kind": "scalar", "value": float(value), "unit": unit}
         elif kind == "particles":
-            result[name] = _particles_payload(value, max_particles)
+            result[name] = _particles_payload(value, max_particles, output_id=name)
         elif kind == "array":
             result[name] = {
                 "kind": "array",
@@ -238,5 +303,8 @@ def evaluate(
             }
         else:
             result[name] = {"kind": "value", "value": _plain(value)}
+        # Set outside the branches so a new kind cannot forget it. The serializer copies it onto
+        # every wire output, and `result_to_wire` must emit every key unconditionally.
+        result[name]["variable_class"] = declared_class
 
     return EvaluateResult(inputs=applied, outputs=result)

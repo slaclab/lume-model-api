@@ -188,46 +188,32 @@ def test_empty_environment_hosts_the_demo_model() -> None:
     assert (setting.name, setting.factory_path, setting.is_demo) == ("demo", DEMO_FACTORY, True)
 
 
-def test_lume_model_shortcut_is_its_own_url_name(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("LUME_MODEL", "cu_hxr_staged")
-    monkeypatch.setenv("LUME_MODEL_KWARGS", '{"n_particles": 7}')
-    setting = models_from_env()[0]
-    assert setting.name == "cu_hxr_staged"
-    assert setting.kwargs == {"n_particles": 7, "end_element": "TD11"}
-
-
-def test_lume_model_full_reference_is_named_after_its_factory(
+def test_set_but_empty_lume_models_hosts_demo_with_warning(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    monkeypatch.setenv("LUME_MODEL", ALT_FACTORY)
-    with caplog.at_level(logging.INFO, logger=loader.__name__):
-        setting = models_from_env()[0]
-    assert setting.name == "make_demo_model"
-    # The URL is not something the operator typed, so startup has to say what it became.
-    assert "make_demo_model" in caplog.text
-
-
-def test_lume_model_kwargs_is_ignored_with_a_warning_when_both_are_set(
-    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
-) -> None:
-    monkeypatch.setenv("LUME_MODELS", DEMO_JSON)
-    monkeypatch.setenv("LUME_MODEL_KWARGS", '{"n_particles": 7}')
+    """A declared-but-empty LUME_MODELS is a common k8s misconfiguration that must warn."""
+    monkeypatch.setenv("LUME_MODELS", "")
     with caplog.at_level(logging.WARNING, logger=loader.__name__):
         setting = models_from_env()[0]
-    assert setting.kwargs == {}
-    assert "LUME_MODEL_KWARGS" in caplog.text and "LUME_MODELS" in caplog.text
+    assert (setting.name, setting.is_demo) == ("demo", True)
+    assert "LUME_MODELS" in caplog.text and "demo" in caplog.text
 
 
-def test_lume_model_is_ignored_with_a_warning_when_both_are_set(
-    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
-) -> None:
-    """The image ships a LUME_MODELS default, so a pod setting only LUME_MODEL serves that."""
-    monkeypatch.setenv("LUME_MODELS", DEMO_JSON)
+def test_lume_model_set_is_a_hard_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A ported manifest that sets LUME_MODEL must fail loudly rather than serve the wrong model."""
     monkeypatch.setenv("LUME_MODEL", "cu_hxr_staged")
-    with caplog.at_level(logging.WARNING, logger=loader.__name__):
-        settings = models_from_env()
-    assert [setting.name for setting in settings] == ["demo"]
-    assert "LUME_MODEL is set" in caplog.text
+    with pytest.raises(ModelRefError) as excinfo:
+        models_from_env()
+    assert "LUME_MODEL" in str(excinfo.value)
+    assert "LUME_MODELS" in str(excinfo.value)
+
+
+def test_lume_model_kwargs_set_is_a_hard_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LUME_MODEL_KWARGS", '{"n_particles": 7}')
+    with pytest.raises(ModelRefError) as excinfo:
+        models_from_env()
+    assert "LUME_MODEL_KWARGS" in str(excinfo.value)
+    assert "LUME_MODELS" in str(excinfo.value)
 
 
 def test_startup_logs_one_line_per_model(

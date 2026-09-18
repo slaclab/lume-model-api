@@ -25,7 +25,7 @@ spec:
       containers:
         - name: lume-model-api
           image: ghcr.io/slaclab/lume-model-api
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
           ports:
             - containerPort: 8000
               name: http

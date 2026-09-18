@@ -43,18 +43,37 @@ V1_SCHEMAS: dict[str, tuple[set[str], set[str]]] = {
     ),
     "EvaluateV1Response": (
         {"model", "version", "timestamp", "frame_index", "inputs", "outputs"},
-        set(),
+        # `input_sources` says whether each value in `inputs` was read off the machine, sent by
+        # the caller, or filled in from the model's design values. Optional, so a client that
+        # predates it is unaffected, and `inputs` itself was left untouched.
+        {"input_sources"},
     ),
-    "ScalarOutput": ({"kind", "value"}, {"unit"}),
-    "ArrayOutput": ({"kind", "shape", "data_b64"}, {"dtype", "unit"}),
-    "ParticlesOutput": ({"kind", "n", "units", "coords", "stats", "stats_units"}, set()),
-    "ValueOutput": ({"kind"}, {"value"}),
+    # `variable_class` is the lume class name beside the coarser `kind`, on every output kind and
+    # on OutputInfo below, so the config route and an evaluate response describe an id the same
+    # way. Optional, so a client that predates it is unaffected and `kind` stays the thing to
+    # switch on.
+    "ScalarOutput": ({"kind", "value"}, {"unit", "variable_class"}),
+    "ArrayOutput": ({"kind", "shape", "data_b64"}, {"dtype", "unit", "variable_class"}),
+    "ParticlesOutput": (
+        {"kind", "n", "units", "coords", "stats", "stats_units"},
+        {"variable_class"},
+    ),
+    "ValueOutput": ({"kind"}, {"value", "variable_class"}),
     "ModelListEntry": ({"name", "version"}, {"description"}),
     "ConfigResponse": ({"model", "version", "inputs", "outputs", "screens"}, {"description"}),
-    "InputInfo": ({"id", "default", "min", "max", "range_source"}, {"unit", "constant"}),
-    "OutputInfo": ({"id", "kind"}, {"unit", "shape", "element_name"}),
+    # `alias_of` is on both: a model may publish two writable handles on one control, in which
+    # case only one stays settable and the others become read-only outputs naming it. Always null
+    # on a published input, so the field means the same thing wherever a client meets it.
+    "InputInfo": (
+        {"id", "default", "min", "max", "range_source"},
+        {"unit", "constant", "alias_of"},
+    ),
+    "OutputInfo": (
+        {"id", "kind"},
+        {"unit", "shape", "element_name", "variable_class", "alias_of"},
+    ),
     "ScreenInfo": ({"key", "particles"}, {"image"}),
-    "SnapshotResponse": ({"inputs"}, set()),
+    "SnapshotResponse": ({"inputs"}, {"sources"}),
 }
 
 # The literal templated paths, exactly as they appear in openapi.json, because that is what a

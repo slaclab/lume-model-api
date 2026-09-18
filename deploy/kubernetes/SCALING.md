@@ -6,13 +6,13 @@
   replicas. Baseline is `replicas: 2` for HA (a single-pod restart is ~25-30s of
   model cold start).
 - **Live producer** (`lume-model-api-live`): the EPICS reader + broadcast hub.
-  **Singleton — must stay `replicas: 1`.** Do not scale it.
+  **A singleton that must stay `replicas: 1`.** Do not scale it.
 
 There is no autoscaler installed in the cluster (no KEDA, no Prometheus), so scaling
 is **manual**. Given the load pattern (scheduled classes on a low steady baseline),
 that's usually enough: bump replicas before a class, drop them after.
 
-Capacity numbers in [`CAPACITY.md`](./CAPACITY.md) were measured for `cu_hxr_staged`;
+Capacity numbers in [`CAPACITY.md`](./CAPACITY.md) were measured for `cu_hxr_staged`, so
 other hosted models will differ.
 
 ## Manual scaling
@@ -20,10 +20,10 @@ other hosted models will differ.
 Cold start is ~25-30s, so scale up a few minutes **before** a class starts:
 
 ```bash
-# Before a class / demo — more eval capacity
+# Before a class or demo, more eval capacity
 kubectl -n lume-model-api scale deployment/lume-model-api-eval --replicas=4
 
-# After — back to baseline
+# After, back to baseline
 kubectl -n lume-model-api scale deployment/lume-model-api-eval --replicas=2
 ```
 
@@ -32,7 +32,7 @@ Never scale `lume-model-api-live` above 1 (see above).
 ## Inspecting load (/metrics)
 
 Each pod exposes Prometheus-format metrics at `/metrics`, even with no Prometheus
-installed — useful for eyeballing saturation before deciding to scale:
+installed, which is useful for eyeballing saturation before deciding to scale:
 
 ```bash
 kubectl -n lume-model-api port-forward deploy/lume-model-api-eval 8000:8000
@@ -43,13 +43,39 @@ curl -s localhost:8000/metrics | grep '^lume_'
 Measured latency, worker-count tuning, and capacity estimates live in
 [`CAPACITY.md`](./CAPACITY.md).
 
-Key series:
-- `lume_pool_inflight` / `lume_pool_max_inflight`: current vs max in-flight, one series per
+Key series, with the full list in [`../../docs/API.md`](../../docs/API.md#get-metrics):
+
+- `lume_pool_inflight` and `lume_pool_max_inflight`: current versus max in-flight, one series per
   hosted model per pod (the `model` label). Sum over `model` to get the pod's load.
   Sustained `inflight` near `max_inflight` (with 503s) means you need more replicas.
-- `lume_evaluate_seconds` — evaluate latency histogram.
-- `lume_evaluate_total{outcome=...}` and `lume_pool_rejected_total` — throughput and
-  503 rejections.
+- `lume_evaluate_seconds`: evaluate latency histogram.
+- `lume_evaluate_total{outcome=...}` and `lume_pool_rejected_total`: throughput and 503 rejections.
+  `outcome="cancelled"` is a client that disconnected mid-evaluate, not a failure.
+- `lume_live_inputs_readable` and `lume_live_inputs_total` on the live pod: how much of the machine
+  the live view is actually reading. `readable` below `total` is normal for a model whose inputs are
+  not all real PVs, so watch for a **drop** from this pod's own steady state. The ids that stopped
+  reading are being served from the model's design values instead of from the machine.
+- `lume_live_streams` on the live pod: distinct producer loops running. It is capped at
+  `lume_pool_max_inflight`, and at the cap a viewer asking for a new output set is refused with a
+  503, so this sitting at the cap means the live pool is too small for how many different views
+  people are opening.
+
+## Alert on `lume_pool_dead`, because saturation queries cannot see it
+
+`lume_pool_dead` goes to 1 when a model's pool can no longer serve an evaluate. That pool can never
+recover in place, so every request for that model returns 503 until the pod restarts.
+
+The trap is that a dead pool reports `lume_pool_inflight` **0**. A pod that can serve nothing
+therefore looks perfectly idle to the KEDA query below, and drags the average down rather than up.
+Alert on `lume_pool_dead` directly and do not try to infer death from the other gauges.
+
+**Sum over the `reason` label when you alert.** It says whether the pool lost a worker process, had
+a model break itself, or hit `LUME_EVALUATE_TIMEOUT_S`, which matters for the investigation and not
+for the alert, since all three need the same pod restart. An alert written against the unlabelled
+series matches nothing.
+
+The probes handle the recovery by themselves, since `/healthz` fails as soon as any pool is dead, so
+the alert is about noticing a crash loop rather than about reacting to a single event.
 
 ## When to graduate to KEDA / Prometheus
 
@@ -67,7 +93,7 @@ Two levels, depending on what you need:
 
 Both require **cluster-admin** to install the controllers/CRDs. A ready-to-use
 `ScaledObject` (cron + prometheus triggers) is already in
-[`keda-scaledobject.yaml`](./keda-scaledobject.yaml) — it just needs KEDA present and
+[`keda-scaledobject.yaml`](./keda-scaledobject.yaml). It just needs KEDA present and
 its TODO values filled in.
 
 ### Install steps

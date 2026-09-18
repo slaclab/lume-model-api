@@ -28,6 +28,11 @@
             "default": "",
             "title": "Unit",
             "type": "string"
+          },
+          "variable_class": {
+            "default": "",
+            "title": "Variable Class",
+            "type": "string"
           }
         },
         "required": [
@@ -98,6 +103,8 @@
           "max_particles": {
             "anyOf": [
               {
+                "maximum": 200000.0,
+                "minimum": 1.0,
                 "type": "integer"
               },
               {
@@ -128,6 +135,8 @@
           "smooth_images_sigma_px": {
             "anyOf": [
               {
+                "maximum": 50.0,
+                "minimum": 0.0,
                 "type": "number"
               },
               {
@@ -145,6 +154,14 @@
           "frame_index": {
             "title": "Frame Index",
             "type": "integer"
+          },
+          "input_sources": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "default": {},
+            "title": "Input Sources",
+            "type": "object"
           },
           "inputs": {
             "additionalProperties": {
@@ -222,6 +239,17 @@
       "InputInfo": {
         "description": "A writable scalar knob.",
         "properties": {
+          "alias_of": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Alias Of"
+          },
           "constant": {
             "default": false,
             "title": "Constant",
@@ -289,6 +317,17 @@
       },
       "OutputInfo": {
         "properties": {
+          "alias_of": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Alias Of"
+          },
           "element_name": {
             "anyOf": [
               {
@@ -331,6 +370,11 @@
           "unit": {
             "default": "",
             "title": "Unit",
+            "type": "string"
+          },
+          "variable_class": {
+            "default": "",
+            "title": "Variable Class",
             "type": "string"
           }
         },
@@ -379,6 +423,11 @@
             },
             "title": "Units",
             "type": "object"
+          },
+          "variable_class": {
+            "default": "",
+            "title": "Variable Class",
+            "type": "string"
           }
         },
         "required": [
@@ -407,6 +456,11 @@
           "value": {
             "title": "Value",
             "type": "number"
+          },
+          "variable_class": {
+            "default": "",
+            "title": "Variable Class",
+            "type": "string"
           }
         },
         "required": [
@@ -453,6 +507,14 @@
               "type": "number"
             },
             "title": "Inputs",
+            "type": "object"
+          },
+          "sources": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "default": {},
+            "title": "Sources",
             "type": "object"
           }
         },
@@ -512,6 +574,11 @@
           },
           "value": {
             "title": "Value"
+          },
+          "variable_class": {
+            "default": "",
+            "title": "Variable Class",
+            "type": "string"
           }
         },
         "required": [
@@ -530,7 +597,7 @@
   "paths": {
     "/api/v1/models": {
       "get": {
-        "description": "Every model served here, sorted by name. Read this instead of hard-coding names.\n\n`name` is the URL segment for that model's other routes, so a dropdown stores `name` and\ninterpolates it. `version` marks a demo deployment. This is also the k8s probe target,\nbecause it answers as soon as every pool has warmed.",
+        "description": "Every model served here, sorted by name. Read this instead of hard-coding names.\n\n`name` is the URL segment for that model's other routes, so a dropdown stores `name` and\ninterpolates it. `version` marks a demo deployment.\n\nClient discovery, deliberately not the health check: a pod hosting several models keeps\nlisting the ones that still work even when another model's pool has died. `GET /healthz` is\nwhat the k8s probes target.",
         "operationId": "list_models_api_v1_models_get",
         "responses": {
           "200": {
@@ -727,7 +794,7 @@
     },
     "/api/v1/models/{name}/machine-snapshot": {
       "get": {
-        "description": "The live input values, read-only. Ids with no live value report their baseline.",
+        "description": "The live input values, read-only. Ids with no live value report their baseline.\n\n`sources` says which is which, per id: \"live\" for a value read off the machine on this call,\n\"baseline\" for one the merge filled in from the model's design value because the PV could not\nbe read. Without it the two are the same number on the wire.",
         "operationId": "machine_snapshot_api_v1_models__name__machine_snapshot_get",
         "parameters": [
           {

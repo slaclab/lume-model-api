@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Create a fresh, pinned conda env for running this API against any LUMEModel.
-# Mirrors the commit pin in Dockerfile; the new VA resolves its own lume-bmad /
-# lume-torch / lume-cheetah pins, so we no longer need to force-reinstall them here.
+# Mirrors the pins in Dockerfile, including the lume stack. Keep the two in step: an env built
+# from VA's own bare requirements gets a lume-bmad that drops every beam variable, so a model
+# would introspect with no screens here while the image serves them.
 #
 # Usage:  bash scripts/setup-dev-env.sh
 # Then:   see the printed instructions below for run commands
@@ -9,6 +10,10 @@ set -euo pipefail
 
 ENV_NAME="${ENV_NAME:-lume-webapp}"
 VA_REF="${VA_REF:-043a2f0fca3a8c7e1f837aa226a42a167a78f9fb}"
+LUME_BMAD_REF="${LUME_BMAD_REF:-8f3ed201d546878441e06aced506fd4411c42492}"
+LUME_BASE_VERSION="${LUME_BASE_VERSION:-0.6.0}"
+LUME_TORCH_VERSION="${LUME_TORCH_VERSION:-3.0.0}"
+LUME_CHEETAH_VERSION="${LUME_CHEETAH_VERSION:-0.1.0}"
 VA_DIR="${VA_DIR:-$HOME/SLAC/virtual-accelerator-pinned}"
 LATTICE_DIR="${LCLS_LATTICE:-$HOME/SLAC/lcls-lattice}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -31,9 +36,21 @@ fi
 git -C "$VA_DIR" fetch --all --tags
 git -C "$VA_DIR" checkout "$VA_REF"
 
+echo ">> Installing the pinned lume stack"
+# Before VA, so its bare lume-* requirements are already satisfied and pip never fetches the
+# lume-bmad release that constructs beam variables without read_only=True. The Dockerfile
+# explains the failure that causes in full.
+run pip install \
+  "lume-base==$LUME_BASE_VERSION" \
+  "lume-torch==$LUME_TORCH_VERSION" \
+  "lume-cheetah==$LUME_CHEETAH_VERSION" \
+  "lume-bmad @ git+https://github.com/lume-science/lume-bmad@$LUME_BMAD_REF"
+
 echo ">> Installing virtual-accelerator[surrogate,bmad] (editable)"
-# The new VA resolves its own lume-bmad/lume-torch/lume-cheetah pins; no force pins needed.
 run pip install -e "$VA_DIR[surrogate,bmad]"
+
+echo ">> Checking the resolved lume-bmad carries the beam read_only fix"
+run python -c "import inspect, lume_bmad.model as m; src = inspect.getsource(m.LUMEBmadModel._refresh_dynamic_action_variables); assert 'read_only=True' in src, 'lume-bmad predates 110230c9, so every <ele>_beam variable would be dropped from the published outputs'"
 
 echo ">> Installing lume-model-api (editable, with the EPICS extra)"
 # pyproject.toml is the single source of truth for the pip-installable deps, so this pulls

@@ -11,6 +11,8 @@ Runs on the bare CI setup: no torch, no pytao, no EPICS, no lattice.
 
 from __future__ import annotations
 
+import importlib.util
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -87,6 +89,24 @@ def test_a_bad_live_source_fails_startup_rather_than_every_frame(
     monkeypatch.setenv("LUME_ROLE", "live")
     monkeypatch.setenv("LUME_LIVE_SOURCE", "epcis")
     with pytest.raises(ValueError, match="Unknown LUME_LIVE_SOURCE"):
+        with TestClient(app):
+            pass
+
+
+def test_the_epics_source_without_pyepics_fails_startup(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The gap that defeated check_env's own purpose, at the level an operator sees it.
+
+    pyepics is the optional [epics] extra, and the import only happens when the first provider is
+    built, on the first live request. So a live Deployment missing the extra used to pass its
+    probes and then raise once per frame forever, which is precisely what check_env exists to
+    stop. find_spec is patched rather than relying on CI lacking pyepics, so this still fails on
+    a dev box that has it installed.
+    """
+    monkeypatch.setenv("LUME_MODELS", '{"demo": {"workers": 1}}')
+    monkeypatch.setenv("LUME_ROLE", "live")
+    monkeypatch.setenv("LUME_LIVE_SOURCE", "epics")
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name: None)
+    with pytest.raises(RuntimeError, match=r"\[epics\] extra"):
         with TestClient(app):
             pass
 

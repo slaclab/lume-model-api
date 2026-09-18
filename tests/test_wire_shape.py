@@ -34,8 +34,11 @@ from lume_model_api.model.demo import make_demo_model
 from lume_model_api.model.evaluate import evaluate
 from lume_model_api.model.introspect import describe
 
-# `model` and `version` are attached by the sender, not the serializer.
-SENDER_ADDED = {"model", "version"}
+# Attached by the sender, not the serializer. `model` and `version` because the SSE stream
+# bypasses the HTTP endpoint that would otherwise fill them, and `input_sources` because the
+# serializer is handed the post-merge values only and cannot tell a live reading from a design
+# value that the merge filled in.
+SENDER_ADDED = {"model", "version", "input_sources"}
 EXPECTED = set(EvaluateV1Response.model_fields) - SENDER_ADDED
 
 MODEL = make_demo_model()
@@ -103,21 +106,43 @@ def test_every_output_carries_its_kind() -> None:
         assert output.get("kind") in {"scalar", "array", "particles", "value"}, name
 
 
+def test_every_output_carries_its_variable_class() -> None:
+    """Published beside `kind` on every output, so the SSE path must emit it too.
+
+    `kind` is coarse by design, so this is the only way a streaming client can tell an
+    IntVariable from a ScalarVariable or one "value" class from another. It is set outside the
+    per-kind branches in both `evaluate` and `serialize_output` precisely so a kind cannot ship
+    without it, and this is what holds that.
+    """
+    wire = result_to_wire(evaluate(MODEL, INFO, {}, ALL_OUTPUT_IDS))
+    missing = sorted(name for name, out in wire["outputs"].items() if not out.get("variable_class"))
+    assert not missing, f"outputs missing variable_class: {missing}" + WHY
+    # The config route and an evaluate response must agree about what an id is, or a client that
+    # reads one and switches on the other is wrong for that id.
+    from_config = {item.id: item.variable_class for item in INFO.outputs}
+    disagreeing = {
+        name: (out["variable_class"], from_config[name])
+        for name, out in wire["outputs"].items()
+        if out["variable_class"] != from_config[name]
+    }
+    assert not disagreeing, f"evaluate and config disagree (wire, config): {disagreeing}"
+
+
 def test_wire_validates_against_the_response_model() -> None:
     """The HTTP route fills gaps from the response_model, the SSE stream cannot. Check both."""
     wire = result_to_wire(evaluate(MODEL, INFO, {}, ALL_OUTPUT_IDS))
     EvaluateV1Response(model="demo", version="demo", **wire)
 
 
-def test_sender_added_fields_are_exactly_model_and_version() -> None:
-    """The serializer omits `model` and `version`, so both senders must attach them.
+def test_sender_added_fields_are_exactly_the_expected_set() -> None:
+    """The serializer omits these, so both senders must attach every one of them.
 
     The HTTP endpoint does it in main.evaluate_v1. The SSE stream bypasses the endpoint
     entirely, so LiveHub._run has to do it too, or a streamed frame is not a complete
     EvaluateV1Response even though clients type it as one.
 
     This pins only the *set*, so that adding a field to EvaluateV1Response forces a decision
-    about which side attaches it. That the live path really does attach both is asserted
+    about which side attaches it. That the live path really does attach each of them is asserted
     behaviourally in tests/test_live_hub.py, which replaced an earlier version of this test
     that grepped live_hub.py for the literal `wire["model"]` and so passed or failed on how the
     assignment happened to be spelled.

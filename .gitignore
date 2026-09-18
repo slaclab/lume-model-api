@@ -1,9 +1,8 @@
-deploy/kubernetes/configmap-epics-real.yaml
+deploy/kubernetes/configmap-epics.yaml
 # A UI repo's build, copied in to be served at "/". Never committed here: this repo ships no
 # UI of its own, and the API-only image leaves the mount inactive.
 lume_model_api/static/
 # Byte-compiled / optimized / DLL files
-**/pycache__/
 __pycache__/
 *.py[cod]
 *$py.class
@@ -22,10 +21,10 @@ dist/
 downloads/
 eggs/
 .eggs/
-# Anchored to the repo root on purpose. Unanchored, `lib/` matches a directory named
-# lib at ANY depth, which silently swallowed webapp/frontend/src/lib/ and broke both CI
-# and the Docker image build from a clean clone. These only ever mean Python build output
-# at the top level.
+# Anchored to the repo root on purpose. Unanchored, `lib/` matches a directory named lib at
+# ANY depth, which once silently swallowed a frontend source directory in the repo this was
+# split out of and broke both CI and the image build from a clean clone. These only ever
+# mean Python build output at the top level.
 /lib/
 /lib64/
 parts/
@@ -187,3 +186,11 @@ __marimo__
 
 # Generated site content
 _site/
+
+# Written into the cwd by a Bmad model on every evaluate: lume-bmad's initial_particles
+# setter uses getcwd(), so running a model from the repo root leaves this behind. Pool
+# workers chdir to their own temp dir, so this only appears in local runs.
+input_beam.h5
+
+# Output of scripts/quad_scan_demo.py, which writes into the cwd by default.
+quad_scan*.png
