@@ -17,6 +17,17 @@ than absorbing directly, and a hard cut was chosen, so nothing needs a deprecati
 > numbers in another repo rot immediately. If a named file or symbol has moved, trust that repo.
 > What is authoritative here is the **new** side of every mapping.
 
+## The two shapes, side by side
+
+![inference-service architecture](architecture-inference-service.svg)
+
+![lume-model-api architecture](architecture-lume-model-api.svg)
+
+Both diagrams use the same four bands and the same colours, so the differences are the only thing
+that moves: two origins become one, one shared in-process model becomes a pool of subprocesses per
+hosted model, and the runtime splits into an autoscaled eval role plus a singleton live role. The
+dashed green box is the only thing this migration adds.
+
 ## Why this is cheap: three things that are already true
 
 Checked against the checkout at `../lume-torch`:
