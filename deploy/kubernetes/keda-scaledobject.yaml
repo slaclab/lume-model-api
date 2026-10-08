@@ -15,11 +15,11 @@
 apiVersion: keda.sh/v1alpha1
 kind: ScaledObject
 metadata:
-  name: lume-monitor-eval
-  namespace: lume-visualizations
+  name: lume-model-api-eval
+  namespace: lume-model-api
 spec:
   scaleTargetRef:
-    name: lume-monitor-eval
+    name: lume-model-api-eval
   minReplicaCount: 2        # warm HA baseline
   maxReplicaCount: 8        # TODO: cap for the cluster's memory budget (~5Gi/replica)
   cooldownPeriod: 300       # don't scale down until idle a while (cold start is slow)
@@ -41,5 +41,10 @@ spec:
         serverAddress: http://prometheus-operated.monitoring.svc:9090
         metricName: lume_pool_inflight
         # Target ~3 in-flight per pod on average; KEDA adds replicas above that.
-        query: avg(lume_pool_inflight)
+        #
+        # Sum by pod first: every series carries a `model` label, so a plain
+        # avg(lume_pool_inflight) would divide each pod's load by the number of models it
+        # hosts and read low exactly when one model is saturated. This relies on the scrape
+        # config attaching a `pod` label, which the standard kubernetes-pods job does.
+        query: avg(sum by (pod) (lume_pool_inflight))
         threshold: "3"

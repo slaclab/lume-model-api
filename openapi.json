@@ -1,8 +1,55 @@
 {
   "components": {
     "schemas": {
+      "ArrayOutput": {
+        "properties": {
+          "data_b64": {
+            "title": "Data B64",
+            "type": "string"
+          },
+          "dtype": {
+            "default": "float32",
+            "title": "Dtype",
+            "type": "string"
+          },
+          "kind": {
+            "const": "array",
+            "title": "Kind",
+            "type": "string"
+          },
+          "shape": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Shape",
+            "type": "array"
+          },
+          "unit": {
+            "default": "",
+            "title": "Unit",
+            "type": "string"
+          },
+          "variable_class": {
+            "default": "",
+            "title": "Variable Class",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "shape",
+          "data_b64"
+        ],
+        "title": "ArrayOutput",
+        "type": "object"
+      },
       "ConfigResponse": {
         "properties": {
+          "description": {
+            "default": "",
+            "title": "Description",
+            "type": "string"
+          },
           "inputs": {
             "items": {
               "$ref": "#/components/schemas/InputInfo"
@@ -14,16 +61,12 @@
             "title": "Model",
             "type": "string"
           },
-          "scalars": {
+          "outputs": {
             "items": {
-              "$ref": "#/components/schemas/ScalarInfo"
+              "$ref": "#/components/schemas/OutputInfo"
             },
-            "title": "Scalars",
+            "title": "Outputs",
             "type": "array"
-          },
-          "scan_pv": {
-            "title": "Scan Pv",
-            "type": "string"
           },
           "screens": {
             "items": {
@@ -40,31 +83,15 @@
         "required": [
           "model",
           "version",
-          "screens",
           "inputs",
-          "scalars",
-          "scan_pv"
+          "outputs",
+          "screens"
         ],
         "title": "ConfigResponse",
         "type": "object"
       },
       "EvaluateV1Request": {
         "properties": {
-          "include_distribution": {
-            "default": false,
-            "title": "Include Distribution",
-            "type": "boolean"
-          },
-          "include_image": {
-            "default": false,
-            "title": "Include Image",
-            "type": "boolean"
-          },
-          "include_twiss": {
-            "default": false,
-            "title": "Include Twiss",
-            "type": "boolean"
-          },
           "inputs": {
             "additionalProperties": {
               "type": "number"
@@ -76,6 +103,8 @@
           "max_particles": {
             "anyOf": [
               {
+                "maximum": 200000.0,
+                "minimum": 1.0,
                 "type": "integer"
               },
               {
@@ -84,81 +113,99 @@
             ],
             "title": "Max Particles"
           },
+          "outputs": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Outputs",
+            "type": "array"
+          },
           "screen": {
-            "title": "Screen",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Screen"
+          },
+          "smooth_images_sigma_px": {
+            "anyOf": [
+              {
+                "maximum": 50.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Smooth Images Sigma Px"
           }
         },
-        "required": [
-          "screen"
-        ],
         "title": "EvaluateV1Request",
         "type": "object"
       },
       "EvaluateV1Response": {
         "properties": {
-          "distribution": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/V1Distribution"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
           "frame_index": {
             "title": "Frame Index",
             "type": "integer"
           },
-          "image": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/V1Image"
-              },
-              {
-                "type": "null"
-              }
-            ]
+          "input_sources": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "default": {},
+            "title": "Input Sources",
+            "type": "object"
           },
-          "image_caption": {
-            "default": "",
-            "title": "Image Caption",
-            "type": "string"
-          },
-          "image_message": {
-            "default": "",
-            "title": "Image Message",
-            "type": "string"
+          "inputs": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "title": "Inputs",
+            "type": "object"
           },
           "model": {
             "title": "Model",
             "type": "string"
           },
-          "scalars": {
-            "$ref": "#/components/schemas/Scalars"
-          },
-          "screen": {
-            "title": "Screen",
-            "type": "string"
-          },
-          "screen_label": {
-            "title": "Screen Label",
-            "type": "string"
+          "outputs": {
+            "additionalProperties": {
+              "discriminator": {
+                "mapping": {
+                  "array": "#/components/schemas/ArrayOutput",
+                  "particles": "#/components/schemas/ParticlesOutput",
+                  "scalar": "#/components/schemas/ScalarOutput",
+                  "value": "#/components/schemas/ValueOutput"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/ScalarOutput"
+                },
+                {
+                  "$ref": "#/components/schemas/ArrayOutput"
+                },
+                {
+                  "$ref": "#/components/schemas/ParticlesOutput"
+                },
+                {
+                  "$ref": "#/components/schemas/ValueOutput"
+                }
+              ]
+            },
+            "title": "Outputs",
+            "type": "object"
           },
           "timestamp": {
             "title": "Timestamp",
             "type": "number"
-          },
-          "twiss": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/V1Twiss"
-              },
-              {
-                "type": "null"
-              }
-            ]
           },
           "version": {
             "title": "Version",
@@ -168,11 +215,10 @@
         "required": [
           "model",
           "version",
-          "screen",
-          "screen_label",
-          "frame_index",
           "timestamp",
-          "scalars"
+          "frame_index",
+          "inputs",
+          "outputs"
         ],
         "title": "EvaluateV1Response",
         "type": "object"
@@ -191,17 +237,30 @@
         "type": "object"
       },
       "InputInfo": {
+        "description": "A writable scalar knob.",
         "properties": {
+          "alias_of": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Alias Of"
+          },
+          "constant": {
+            "default": false,
+            "title": "Constant",
+            "type": "boolean"
+          },
           "default": {
             "title": "Default",
             "type": "number"
           },
           "id": {
             "title": "Id",
-            "type": "string"
-          },
-          "label": {
-            "title": "Label",
             "type": "string"
           },
           "max": {
@@ -212,6 +271,10 @@
             "title": "Min",
             "type": "number"
           },
+          "range_source": {
+            "title": "Range Source",
+            "type": "string"
+          },
           "unit": {
             "default": "",
             "title": "Unit",
@@ -220,89 +283,219 @@
         },
         "required": [
           "id",
-          "label",
+          "default",
           "min",
           "max",
-          "default"
+          "range_source"
         ],
         "title": "InputInfo",
         "type": "object"
       },
-      "ScalarInfo": {
+      "ModelListEntry": {
+        "description": "One model this process hosts. A UI reads this list rather than hard-coding names.",
         "properties": {
+          "description": {
+            "default": "",
+            "title": "Description",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "version"
+        ],
+        "title": "ModelListEntry",
+        "type": "object"
+      },
+      "OutputInfo": {
+        "properties": {
+          "alias_of": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Alias Of"
+          },
+          "element_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Element Name"
+          },
           "id": {
             "title": "Id",
             "type": "string"
           },
-          "label": {
-            "title": "Label",
+          "kind": {
+            "enum": [
+              "scalar",
+              "array",
+              "particles",
+              "value"
+            ],
+            "title": "Kind",
             "type": "string"
           },
+          "shape": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shape"
+          },
           "unit": {
+            "default": "",
             "title": "Unit",
+            "type": "string"
+          },
+          "variable_class": {
+            "default": "",
+            "title": "Variable Class",
             "type": "string"
           }
         },
         "required": [
           "id",
-          "label",
-          "unit"
+          "kind"
         ],
-        "title": "ScalarInfo",
+        "title": "OutputInfo",
         "type": "object"
       },
-      "Scalars": {
+      "ParticlesOutput": {
         "properties": {
-          "norm_emit_x_um_rad": {
-            "title": "Norm Emit X Um Rad",
-            "type": "number"
+          "coords": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Coords",
+            "type": "object"
           },
-          "norm_emit_y_um_rad": {
-            "title": "Norm Emit Y Um Rad",
-            "type": "number"
+          "kind": {
+            "const": "particles",
+            "title": "Kind",
+            "type": "string"
           },
-          "sigma_z_um": {
-            "title": "Sigma Z Um",
-            "type": "number"
+          "n": {
+            "title": "N",
+            "type": "integer"
           },
-          "xrms_um": {
-            "title": "Xrms Um",
-            "type": "number"
+          "stats": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "title": "Stats",
+            "type": "object"
           },
-          "yrms_um": {
-            "title": "Yrms Um",
-            "type": "number"
+          "stats_units": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Stats Units",
+            "type": "object"
+          },
+          "units": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Units",
+            "type": "object"
+          },
+          "variable_class": {
+            "default": "",
+            "title": "Variable Class",
+            "type": "string"
           }
         },
         "required": [
-          "xrms_um",
-          "yrms_um",
-          "sigma_z_um",
-          "norm_emit_x_um_rad",
-          "norm_emit_y_um_rad"
+          "kind",
+          "n",
+          "units",
+          "coords",
+          "stats",
+          "stats_units"
         ],
-        "title": "Scalars",
+        "title": "ParticlesOutput",
+        "type": "object"
+      },
+      "ScalarOutput": {
+        "properties": {
+          "kind": {
+            "const": "scalar",
+            "title": "Kind",
+            "type": "string"
+          },
+          "unit": {
+            "default": "",
+            "title": "Unit",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "number"
+          },
+          "variable_class": {
+            "default": "",
+            "title": "Variable Class",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "value"
+        ],
+        "title": "ScalarOutput",
         "type": "object"
       },
       "ScreenInfo": {
+        "description": "A diagnostic location. `image` is null when the model publishes no image for it.",
         "properties": {
-          "has_image": {
-            "title": "Has Image",
-            "type": "boolean"
+          "image": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image"
           },
           "key": {
             "title": "Key",
             "type": "string"
           },
-          "label": {
-            "title": "Label",
+          "particles": {
+            "title": "Particles",
             "type": "string"
           }
         },
         "required": [
           "key",
-          "label",
-          "has_image"
+          "particles"
         ],
         "title": "ScreenInfo",
         "type": "object"
@@ -315,99 +508,20 @@
             },
             "title": "Inputs",
             "type": "object"
+          },
+          "sources": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "default": {},
+            "title": "Sources",
+            "type": "object"
           }
         },
         "required": [
           "inputs"
         ],
         "title": "SnapshotResponse",
-        "type": "object"
-      },
-      "V1Distribution": {
-        "properties": {
-          "coords": {
-            "additionalProperties": {
-              "type": "string"
-            },
-            "title": "Coords",
-            "type": "object"
-          },
-          "n": {
-            "title": "N",
-            "type": "integer"
-          },
-          "units": {
-            "additionalProperties": {
-              "type": "string"
-            },
-            "title": "Units",
-            "type": "object"
-          }
-        },
-        "required": [
-          "n",
-          "units",
-          "coords"
-        ],
-        "title": "V1Distribution",
-        "type": "object"
-      },
-      "V1Image": {
-        "properties": {
-          "data_b64": {
-            "title": "Data B64",
-            "type": "string"
-          },
-          "dtype": {
-            "default": "float32",
-            "title": "Dtype",
-            "type": "string"
-          },
-          "shape": {
-            "items": {
-              "type": "integer"
-            },
-            "title": "Shape",
-            "type": "array"
-          }
-        },
-        "required": [
-          "shape",
-          "data_b64"
-        ],
-        "title": "V1Image",
-        "type": "object"
-      },
-      "V1Twiss": {
-        "properties": {
-          "beta_x": {
-            "items": {
-              "type": "number"
-            },
-            "title": "Beta X",
-            "type": "array"
-          },
-          "beta_y": {
-            "items": {
-              "type": "number"
-            },
-            "title": "Beta Y",
-            "type": "array"
-          },
-          "s": {
-            "items": {
-              "type": "number"
-            },
-            "title": "S",
-            "type": "array"
-          }
-        },
-        "required": [
-          "s",
-          "beta_x",
-          "beta_y"
-        ],
-        "title": "V1Twiss",
         "type": "object"
       },
       "ValidationError": {
@@ -449,44 +563,75 @@
         ],
         "title": "ValidationError",
         "type": "object"
+      },
+      "ValueOutput": {
+        "description": "Anything that is not a number, an array or a beam: enums, strings, flags.",
+        "properties": {
+          "kind": {
+            "const": "value",
+            "title": "Kind",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value"
+          },
+          "variable_class": {
+            "default": "",
+            "title": "Variable Class",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "title": "ValueOutput",
+        "type": "object"
       }
     }
   },
   "info": {
-    "title": "LUME Live Stream Monitor",
+    "title": "LUME model API",
     "version": "0.1.0"
   },
   "openapi": "3.1.0",
   "paths": {
-    "/api/config": {
+    "/api/v1/models": {
       "get": {
-        "operationId": "get_config_api_config_get",
+        "description": "Every model served here, sorted by name. Read this instead of hard-coding names.\n\n`name` is the URL segment for that model's other routes, so a dropdown stores `name` and\ninterpolates it. `version` marks a demo deployment.\n\nClient discovery, deliberately not the health check: a pod hosting several models keeps\nlisting the ones that still work even when another model's pool has died. `GET /healthz` is\nwhat the k8s probes target.",
+        "operationId": "list_models_api_v1_models_get",
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ConfigResponse"
+                  "items": {
+                    "$ref": "#/components/schemas/ModelListEntry"
+                  },
+                  "title": "Response List Models Api V1 Models Get",
+                  "type": "array"
                 }
               }
             },
             "description": "Successful Response"
           }
         },
-        "summary": "Get Config"
+        "summary": "List the models this process hosts",
+        "tags": [
+          "model-api"
+        ]
       }
     },
-    "/api/live/stream": {
+    "/api/v1/models/{name}/config": {
       "get": {
-        "operationId": "live_stream_api_live_stream_get",
+        "description": "Everything a client needs to drive this model: inputs, outputs and screens.\n\nDerived from the model instance itself, so it is accurate for whatever `LUME_MODELS`\nselected. `range_source` says whether an input's min/max came from the model or was\nderived from its default, and `constant` marks an input the model pins to one value.",
+        "operationId": "get_config_api_v1_models__name__config_get",
         "parameters": [
           {
-            "in": "query",
-            "name": "screen",
-            "required": false,
+            "in": "path",
+            "name": "name",
+            "required": true,
             "schema": {
-              "default": "OTR4",
-              "title": "Screen",
+              "title": "Name",
               "type": "string"
             }
           }
@@ -495,7 +640,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigResponse"
+                }
               }
             },
             "description": "Successful Response"
@@ -511,31 +658,27 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Live Stream"
+        "summary": "Everything a client needs to drive one model",
+        "tags": [
+          "model-api"
+        ]
       }
     },
-    "/api/machine-snapshot": {
-      "get": {
-        "operationId": "machine_snapshot_api_machine_snapshot_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SnapshotResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Machine Snapshot"
-      }
-    },
-    "/api/v1/evaluate": {
+    "/api/v1/models/{name}/evaluate": {
       "post": {
-        "description": "Stateless model evaluation. The one evaluate endpoint for every caller.\n\nUsed by this app's own web UI, by any other UI, and by programmatic clients such as\nnotebooks and emittance GUIs. There is deliberately no separate UI-private endpoint.\n\n`inputs` is a map of PV name -> engineering-unit control value, overlaid on the\nmodel's design baseline, so send only the knobs you want to change (`{}` is the\ndesign machine). `GET /api/config` lists the writable inputs with their ranges and\ndefaults.\n\nScalars are always returned. Set `include_image`, `include_distribution` and\n`include_twiss` for the heavier outputs, and `max_particles` to subsample the\ndistribution (it defaults to 3000, never the full beam). Large arrays are\nbase64-encoded little-endian float32, so decode with e.g.\n`numpy.frombuffer(base64.b64decode(s), dtype='<f4')`. The image is row-major,\nreshaped to `image.shape`.\n\nParticle positions are in \u00b5m and momenta in eV/c, matching the \u00b5m-based scalars.\nEvery response states its own units in `distribution.units`, so do not hard-code\nthem.",
-        "operationId": "evaluate_v1_api_v1_evaluate_post",
+        "description": "Stateless model evaluation. The one evaluate endpoint for every caller.\n\n`inputs` maps input id to control value, overlaid on the model's baseline, so send only\nthe knobs you want to change (`{}` is the design machine). The effective post-merge\nvalues come back in the response's `inputs`.\n\nAsk for outputs by id in `outputs`, or pass `screen` to get that screen's particle\ndistribution plus its image when it has one. Both may be combined. Every requested id is\npresent in `outputs`, keyed by id, and each value declares its own `kind` and unit.\n\nLarge arrays are base64-encoded little-endian float32, so decode with e.g.\n`numpy.frombuffer(base64.b64decode(s), dtype='<f4')` and reshape to `shape`. Particle\ncoordinates are subsampled to `max_particles` (default 3000, never the full beam).\n\nValues are in the model's own units, declared in the payload. Nothing is converted\nserver-side, so do not hard-code units.",
+        "operationId": "evaluate_v1_api_v1_models__name__evaluate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -568,7 +711,125 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Run the model on a set of inputs and return beam output",
+        "summary": "Run one model on a set of inputs and return the requested outputs",
+        "tags": [
+          "model-api"
+        ]
+      }
+    },
+    "/api/v1/models/{name}/live/stream": {
+      "get": {
+        "description": "SSE `frame` events with the same body as this model's evaluate route.\n\nRequires `screen` or `outputs` (or both). Loops are shared by output set within a model, so\nmany viewers of the same set cost one evaluate loop. Errors arrive as an `error` event and\nthe loop keeps running.",
+        "operationId": "live_stream_api_v1_models__name__live_stream_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "screen",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Screen"
+            }
+          },
+          {
+            "description": "Comma-separated output ids",
+            "in": "query",
+            "name": "outputs",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Comma-separated output ids",
+              "title": "Outputs"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Live Stream",
+        "tags": [
+          "model-api"
+        ]
+      }
+    },
+    "/api/v1/models/{name}/machine-snapshot": {
+      "get": {
+        "description": "The live input values, read-only. Ids with no live value report their baseline.\n\n`sources` says which is which, per id: \"live\" for a value read off the machine on this call,\n\"baseline\" for one the merge filled in from the model's design value because the PV could not\nbe read. Without it the two are the same number on the wire.",
+        "operationId": "machine_snapshot_api_v1_models__name__machine_snapshot_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SnapshotResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "The live input values for one model, read-only",
         "tags": [
           "model-api"
         ]
@@ -576,7 +837,7 @@
     },
     "/metrics": {
       "get": {
-        "description": "Prometheus scrape endpoint. KEDA autoscales the eval pool on lume_pool_inflight.",
+        "description": "Prometheus scrape endpoint. KEDA autoscales the eval pool on lume_pool_inflight.\n\nEvery series carries a `model` label, one per hosted model, so an aggregate has to sum by\npod before averaging. See deploy/kubernetes/keda-scaledobject.yaml.",
         "operationId": "metrics_metrics_get",
         "responses": {
           "200": {
