@@ -109,7 +109,7 @@ models need `FACET2_LATTICE`. Then run:
 LUME_MODELS=cu_hxr_staged KMP_DUPLICATE_LIB_OK=TRUE uvicorn lume_model_api.api.main:app --port 8000
 ```
 
-Then set one injector quad, ask for OTR3's particles and image, and read the quad's readback:
+Then from any terminal, set one injector quad, ask for OTR3's particles and image, and read the quad's readback:
 
 ```bash
 curl -s -X POST localhost:8000/api/v1/models/cu_hxr_staged/evaluate \
