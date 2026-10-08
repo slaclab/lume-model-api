@@ -148,11 +148,11 @@ pin a git ref and a rename here is silent for them until they refetch. The `BREA
 
 ## Smaller things that look broken and are not
 
-- **The lume stack is pinned in the Dockerfile on purpose, and `LUME_BMAD_REF` must stay a git
-  ref.** virtual-accelerator declares bare `lume-*` requirements, and the released lume-bmad drops
-  every beam variable, for the reason in the `output_beam` bullet below.
-  `scripts/setup-dev-env.sh` mirrors all of those pins,
-  so the two move together. `conda install bmad pytao` is still unpinned, so a fresh solve can pull
+- **The lume stack is pinned in the `va` extra in `pyproject.toml` on purpose, and lume-bmad
+  must stay a git ref.** virtual-accelerator declares bare `lume-*` requirements, and the released
+  lume-bmad drops every beam variable, for the reason in the `output_beam` bullet below. The
+  Dockerfile and the README's local install both use that extra, so never re-pin elsewhere.
+  `conda install bmad pytao` is still unpinned, so a fresh solve can pull
   a Bmad that rejects a model's `tao.init`. See DEPLOY, "Building the image".
 - **The k8s objects are a new set, not a rename.** `lume-model-api-*` in namespace
   `lume-model-api` on the `/lume-model-api` prefix run beside the old monolith's `lume-monitor-*`
@@ -171,8 +171,9 @@ pin a git ref and a rename here is silent for them until they refetch. The `BREA
   `validate_default`, which `lume.variables.Variable` does not. A model author who mixes in
   `ReadOnlyActionMixin` and leaves the flag alone gets a variable this package silently drops. That
   is exactly how every `<ele>_beam` on `cu_hxr_staged` disappeared, leaving screen images with no
-  particles and `screens: []`. Nothing here checks for it. The Dockerfile pin plus its build-time
-  assertion is what keeps it from recurring, so do not treat either as redundant.
+  particles and `screens: []`. Nothing here checks for it. The lume-bmad pin in `pyproject.toml`
+  plus the Dockerfile's build-time assertion is what keeps it from recurring, so do not treat
+  either as redundant.
 - **`lume_model_api/static/` is gitignored.** It is where a UI repo's build lands. Never commit one.
 - **The live producer must stay `replicas: 1`.** N replicas would each read EPICS and evaluate,
   costing N times the work and showing viewers divergent frames.

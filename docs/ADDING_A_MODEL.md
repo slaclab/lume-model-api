@@ -392,10 +392,10 @@ and optionally an `NDVariable` subclass carrying `element_name={key}` whose name
 
 ## Getting the model's dependencies into the image
 
-`pyproject.toml` covers only this service's own dependencies (fastapi, uvicorn, sse-starlette,
-pydantic, prometheus-client, numpy, scipy, lume-base). A hosted model's stack is deliberately
-absent, because none of it is on PyPI at the revisions a real model needs. It is pinned in the
-`Dockerfile` and in `scripts/setup-dev-env.sh` instead.
+The core `dependencies` in `pyproject.toml` cover only this service (fastapi, uvicorn,
+sse-starlette, pydantic, prometheus-client, numpy, scipy, lume-base). A hosted model's pip stack
+is pinned in an optional extra instead, as the `va` extra does for virtual-accelerator, and the
+`Dockerfile` installs it. Conda packages and lattices are set up in the `Dockerfile` directly.
 
 If your model is a plain pip-installable package, add it next to the existing install step in
 the `Dockerfile`:

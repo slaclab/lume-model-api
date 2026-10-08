@@ -30,14 +30,14 @@ only at pod scheduling time.
 
 The image installs miniforge plus `bmad` and `pytao` from conda-forge (and patches
 `libtao.so`'s execstack, which pytao needs), the CPU torch wheel, the LCLS and FACET2 lattices at
-pinned refs, the pinned lume stack, virtual-accelerator at `VA_REF` with its `[surrogate,bmad]`
-extras, and finally this package with the `[epics]` extra. Build args `PYTHON_VERSION`,
-`LCLS_LATTICE_REF`, `FACET_LATTICE_REF`, `VA_REF`, `LUME_BMAD_REF`, `LUME_BASE_VERSION`,
-`LUME_TORCH_VERSION`, `LUME_CHEETAH_VERSION` and `DOCKER_PLATFORM` are all overridable.
+pinned refs, and finally this package with the `[va,epics]` extras, which carry the pinned lume
+stack and virtual-accelerator. Build args `PYTHON_VERSION`, `LCLS_LATTICE_REF`,
+`FACET_LATTICE_REF` and `DOCKER_PLATFORM` are overridable. The pip pins are not build args: they
+live only in the `va` extra in `pyproject.toml`, which a local install uses too.
 
-**The lume stack is pinned in the Dockerfile, not resolved by virtual-accelerator.** VA declares
+**The lume stack is pinned in `pyproject.toml`, not resolved by virtual-accelerator.** VA declares
 bare `lume-base`, `lume-bmad`, `lume-torch` and `lume-cheetah` requirements, so an unpinned build
-installs whatever PyPI serves that day. `LUME_BMAD_REF` in particular has to stay a git ref: the
+installs whatever PyPI serves that day. lume-bmad in particular has to stay a git ref: the
 released lume-bmad `v0.1.0` builds every `<ele>_beam` variable without `read_only=True`, which
 makes `introspect.describe` drop the beams as writable non-scalars and publish `screens: []` with
 no particle outputs at all. The fix is upstream in `110230c9` and is not in any tag yet. The build
@@ -459,15 +459,12 @@ base instead of redirecting. Neither affects this service.
 
 ## Running without Kubernetes
 
-For a real model on a workstation, `scripts/setup-dev-env.sh` builds the pinned conda env
-(`lume-webapp` by default) with Bmad, pytao, CPU torch and virtual-accelerator at the same
-`VA_REF` as the image, then installs this package with the `[epics]` extra. It prints the run
-commands when it finishes.
+For a real model on a workstation, follow "Local install for a VA model" in the README. It sets
+up Bmad, pytao and the lattices and installs this package with the `[va,epics]` extras, which
+are the same pip pins the image uses. Then:
 
 ```bash
-bash scripts/setup-dev-env.sh
-conda run -n lume-webapp env \
-  LUME_MODELS=cu_hxr_staged LCLS_LATTICE=$HOME/SLAC/lcls-lattice \
+LUME_MODELS=cu_hxr_staged LCLS_LATTICE=$HOME/SLAC/lcls-lattice \
   KMP_DUPLICATE_LIB_OK=TRUE OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 \
   OPENBLAS_NUM_THREADS=2 TORCH_NUM_THREADS=2 \
   python -m uvicorn lume_model_api.api.main:app --host 0.0.0.0 --port 8000

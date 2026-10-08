@@ -84,6 +84,40 @@ The response has `outputs` keyed by the ids you asked for, each declaring its ow
 units. Arrays and particle coordinates arrive as base64 little-endian float32. See
 [`docs/API.md`](docs/API.md) for the decode one-liner and every endpoint in full.
 
+## Local install for a VA model
+
+Running a virtual-accelerator model such as `cu_hxr_staged` without the image needs three things.
+The pip pins live in the `va` extra in `pyproject.toml`, which the Dockerfile installs too.
+Bmad, pytao and the lattices are not pip packages, so they are set up separately.
+
+```bash
+conda create -n lume-model-api -c conda-forge python=3.12 bmad pytao
+conda activate lume-model-api
+pip install --index-url https://download.pytorch.org/whl/cpu torch  # optional, CPU-only wheel
+pip install -e ".[va,epics,dev]"
+
+git clone https://github.com/slaclab/lcls-lattice.git ~/SLAC/lcls-lattice
+git clone https://github.com/slaclab/facet2-lattice.git ~/SLAC/facet2-lattice
+export LCLS_LATTICE=~/SLAC/lcls-lattice FACET2_LATTICE=~/SLAC/facet2-lattice
+```
+
+Check out the lattice commits named by `LCLS_LATTICE_REF` and `FACET_LATTICE_REF` in the
+Dockerfile to match the image. The `cu_hxr_*` models need `LCLS_LATTICE` and the `facet_*`
+models need `FACET2_LATTICE`. Then run:
+
+```bash
+LUME_MODELS=cu_hxr_staged KMP_DUPLICATE_LIB_OK=TRUE uvicorn lume_model_api.api.main:app --port 8000
+```
+
+Then set one injector quad, ask for OTR3's particles and image, and read the quad's readback:
+
+```bash
+curl -s -X POST localhost:8000/api/v1/models/cu_hxr_staged/evaluate \
+  -H 'Content-Type: application/json' \
+  -d '{"inputs": {"QUAD:IN20:525:BCTRL": -3.0}, "screen": "OTR3", "outputs": ["QUAD:IN20:525:BACT"], "max_particles": 1000}' \
+  | python3 -c "import json,sys; r=json.load(sys.stdin); print({k: v.get('value', v['kind']) for k, v in r['outputs'].items()}); print(r['input_sources']['QUAD:IN20:525:BCTRL'])"
+```
+
 ## Selecting models
 
 `LUME_MODELS` is the only model-specific setting. It names every model this process hosts and
@@ -214,8 +248,7 @@ elsewhere. See [`docs/DEPLOY.md`](docs/DEPLOY.md).
   model), `schemas.py`, `serialize.py` and `metrics.py`.
 - `tests/` runs the whole pipeline against the demo model, with no torch, pytao or EPICS.
 - `deploy/kubernetes/` holds the eval pool, the live singleton, service, ingress and KEDA.
-- `scripts/setup-dev-env.sh` builds a pinned conda env for the accelerator models.
-  `scripts/dump_openapi.py` regenerates the committed contract.
+- `scripts/dump_openapi.py` regenerates the committed contract.
 
 ## Docs
 

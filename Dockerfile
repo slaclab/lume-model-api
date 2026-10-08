@@ -7,15 +7,6 @@
 ARG PYTHON_VERSION=3.12
 ARG LCLS_LATTICE_REF=c6b8defbf2ba83bf8f5af70191c893de361657d1 # 52ad1a5ddd00aa57a89a4fc7f2fa1a2363216ae8
 ARG FACET_LATTICE_REF=d8b2e3f1db4d8f34b95cab5e1a3959f073ac165f
-ARG VA_REF=043a2f0fca3a8c7e1f837aa226a42a167a78f9fb
-# The lume stack virtual-accelerator builds on. Pinned here rather than left to VA's bare
-# requirements, because those resolve to whatever PyPI serves on the day of the build, which
-# is how the running pod ended up with contents nobody could name. See the install step below
-# for why lume-bmad in particular has to come from a git ref.
-ARG LUME_BMAD_REF=8f3ed201d546878441e06aced506fd4411c42492
-ARG LUME_BASE_VERSION=0.6.0
-ARG LUME_TORCH_VERSION=3.0.0
-ARG LUME_CHEETAH_VERSION=0.1.0
 ARG DOCKER_PLATFORM=linux/amd64
 
 # --- Python runtime with Bmad: hosts a LUMEModel ---
@@ -23,11 +14,6 @@ FROM --platform=${DOCKER_PLATFORM} python:${PYTHON_VERSION}-slim AS runtime
 ARG PYTHON_VERSION
 ARG LCLS_LATTICE_REF
 ARG FACET_LATTICE_REF
-ARG VA_REF
-ARG LUME_BMAD_REF
-ARG LUME_BASE_VERSION
-ARG LUME_TORCH_VERSION
-ARG LUME_CHEETAH_VERSION
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -76,30 +62,24 @@ RUN git clone https://github.com/slaclab/lcls-lattice.git /opt/lcls-lattice \
 RUN git clone https://github.com/slaclab/facet2-lattice.git /opt/facet-lattice \
     && cd /opt/facet-lattice && git checkout ${FACET_LATTICE_REF}
 
-# virtual-accelerator @ pinned ref, plus explicit pins for the lume stack underneath it.
-#
-# The lume-bmad git ref is load-bearing, not belt and braces. VA declares a bare `lume-bmad`
-# requirement, so an unpinned build resolves it to the PyPI release v0.1.0 (2026-07-13), which
-# constructs every `<ele>_beam` variable without `read_only=True`. lume-base defaults
-# `Variable.read_only` to False and does not set pydantic's `validate_default`, so
-# `ReadOnlyActionMixin`'s own guard against exactly that never fires. The beams then reach
-# `introspect.describe` claiming to be writable, it drops them as writable non-scalars, and the
-# API publishes screen images with no particles and `screens: []`. lume-bmad fixed the call
-# site in 110230c9 (2026-08-25) and has not tagged a release since, so the ref stays until a
-# tag past that commit exists.
-#
-# Installed before VA so its bare requirements are already satisfied and pip never fetches the
-# release that drops the beams.
+# CPU torch first, so the bare `torch` in the [va] extra is already satisfied and pip never
+# pulls the much larger CUDA wheel.
 RUN python -m pip install --upgrade setuptools wheel \
-    && python -m pip install --upgrade --index-url https://download.pytorch.org/whl/cpu torch \
-    && python -m pip install \
-         "lume-base==${LUME_BASE_VERSION}" \
-         "lume-torch==${LUME_TORCH_VERSION}" \
-         "lume-cheetah==${LUME_CHEETAH_VERSION}" \
-         "lume-bmad @ git+https://github.com/lume-science/lume-bmad@${LUME_BMAD_REF}" \
-    && git clone https://github.com/slaclab/virtual-accelerator.git /opt/virtual-accelerator \
-    && cd /opt/virtual-accelerator && git checkout ${VA_REF} \
-    && python -m pip install -e ".[surrogate,bmad]"
+    && python -m pip install --upgrade --index-url https://download.pytorch.org/whl/cpu torch
+
+# Every pip pin lives in pyproject.toml. The requirements are read out of it here, before the
+# app code is copied, so this heavy layer is rebuilt only when pyproject.toml changes.
+#
+# The lume-bmad git ref there is load-bearing. VA declares a bare `lume-bmad` requirement, and
+# the PyPI release v0.1.0 constructs every `<ele>_beam` variable without `read_only=True`.
+# lume-base defaults `Variable.read_only` to False and does not set pydantic's
+# `validate_default`, so `ReadOnlyActionMixin`'s guard never fires, `introspect.describe` drops
+# the beams as writable non-scalars, and the API publishes `screens: []`. lume-bmad fixed this
+# in 110230c9 (2026-08-25) and has not tagged a release since.
+COPY pyproject.toml ./
+RUN python -c "import tomllib; p = tomllib.load(open('pyproject.toml', 'rb'))['project']; x = p['optional-dependencies']; print('\n'.join(p['dependencies'] + x['va'] + x['epics']))" > /tmp/requirements.txt \
+    && python -m pip install -r /tmp/requirements.txt \
+    && rm /tmp/requirements.txt
 
 # Fail the build, rather than the pod, if the resolved lume-bmad predates the beam fix. A pod
 # built on the older release starts healthy and serves every scalar and image, so the only
@@ -116,10 +96,7 @@ RUN python -c "import inspect, lume_bmad.model as m; src = inspect.getsource(m.L
 COPY pyproject.toml README.md ./
 COPY lume_model_api/ ./lume_model_api/
 
-# pyproject.toml is the single source of truth for the pip-installable deps (fastapi,
-# uvicorn, sse-starlette, pydantic, prometheus-client, numpy, scipy), plus pyepics
-# from the [epics] extra for the live role.
-RUN python -m pip install -e ".[epics]"
+RUN python -m pip install -e ".[va,epics]"
 
 EXPOSE 8000
 # TLS terminates on a load balancer in front of the cluster and the pod sees plain HTTP, so
