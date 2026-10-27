@@ -1,0 +1,83 @@
+# Publishes the API's ReDoc page to GitHub Pages from the committed openapi.json.
+#
+# openapi.json is the single source of truth for the wire contract (see docs/API.md,
+# "Changing the contract"). FastAPI already serves Swagger UI at /docs and ReDoc at
+# /redoc on a running pod, which is enough for dev. The Pages site is the canonical
+# browser-friendly reference for consumers who do not have the service running: it
+# always matches the schema at the tip of main, because it is built straight from the
+# committed file rather than from a regeneration step here.
+#
+# The schema itself is guarded by .github/workflows/contract.yml, which fails a pull
+# request whose openapi.json is stale. By the time a push lands on main the file is
+# known good, so this workflow only has to copy it next to a tiny ReDoc loader.
+#
+# Pages serves at https://slaclab.github.io/lume-model-api/. The repo must have Pages
+# enabled with "GitHub Actions" as the source (Settings -> Pages). Nothing else is
+# required: no gh-pages branch, no custom domain.
+
+name: docs
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Pages deployments need an OIDC token to publish to the environment, and write access
+# to the pages scope. Everything else stays read-only.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One live deployment at a time. A second push during a build cancels the in-flight
+# run, so the latest commit is what ends up published.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      # Actions are pinned to full-length commit SHAs because the slaclab org requires
+      # it. The trailing comment is the human-readable version, keep the two in step
+      # when bumping.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Assemble the site
+        run: |
+          mkdir -p _site
+          cp openapi.json _site/openapi.json
+          cat > _site/index.html <<'HTML'
+          <!doctype html>
+          <html lang="en">
+            <head>
+              <meta charset="utf-8" />
+              <meta name="viewport" content="width=device-width, initial-scale=1" />
+              <title>LUME model API</title>
+              <style>
+                body { margin: 0; }
+              </style>
+            </head>
+            <body>
+              <redoc spec-url="openapi.json"></redoc>
+              <script src="https://cdn.jsdelivr.net/npm/redoc@2/bundles/redoc.standalone.js"></script>
+            </body>
+          </html>
+          HTML
+
+      - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
