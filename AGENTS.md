@@ -1,167 +1,187 @@
 # Notes for agents working on this package
 
-`README.md` says what this service is and `docs/BACKEND.md` documents the API contract and
-deploys. This file covers the things that are easy to break and are not obvious from reading
-the code, mostly cases where the obvious cleanup is wrong.
+An index of the traps that are invisible in the code, and where the explanations live. It is
+deliberately short: every behaviour is documented in exactly one place, and duplicating an
+explanation here is how the docs drifted the last time.
+
+| Topic | Canonical home |
+| --- | --- |
+| What the service is, quickstart, env vars | [`README.md`](README.md) |
+| The wire contract, every endpoint, the metrics | [`docs/API.md`](docs/API.md) |
+| Layering, the pool, the live hub, warmup, baseline merge | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) |
+| The model author's contract, `LUME_MODELS` in full | [`docs/ADDING_A_MODEL.md`](docs/ADDING_A_MODEL.md) |
+| Image build, apply, probes, sizing, scaling, packaging | [`docs/DEPLOY.md`](docs/DEPLOY.md) |
+| A model that breaks itself, and why 503 rather than 400 | [`docs/POISONED_WORKER.md`](docs/POISONED_WORKER.md) |
 
 ## This repo was split out of another one, recently
 
 The code lived in `slaclab/lume-visualizations` until 2026-09-09 and still does, unchanged, in
 parallel. That repo keeps the React UI that was this API's first consumer.
 
-Consequences:
+- **`webapp`, `webapp.backend` and `lume_visualizations` are dead names here.** Any occurrence is
+  stale text. `webapp/backend/` became `lume_model_api/api/`, `lume_visualizations/` became
+  `lume_model_api/model/`.
+- **History is preserved but paths are not.** Use `git log --follow`, or `git blame` will look like
+  a file has no history. Commits before `a923530` refer to the old paths.
+- **Nothing here has ever been pushed or deployed.** No GitHub remote, and no image exists under
+  `ghcr.io/slaclab/lume-model-api`, so `deploy/kubernetes` points at a tag that does not resolve.
 
-- **`webapp`, `webapp.backend` and `lume_visualizations` are dead names here.** If you find one
-  in a comment or doc, it is stale text that got missed. `webapp/backend/` became
-  `lume_model_api/api/` and `lume_visualizations/` became `lume_model_api/model/`.
-- **History is preserved but paths are not.** `git log --follow` and `git blame` work, and
-  commits before `a923530` refer to the old paths. Use `--follow` or you will think a file has
-  no history.
-- **Nothing here has ever been pushed or deployed.** There is no GitHub remote and no image
-  exists under the `ghcr.io/slaclab/lume-model-api` name, so `deploy/kubernetes` points at a
-  tag that does not resolve yet.
+## Do not undo these
 
-## Layering: `api` depends on `model`, never the reverse
+Each of these is a decision that looks like a bug or an oversight.
 
-`lume_model_api/model/` knows nothing about HTTP, FastAPI or Pydantic. It returns `BeamFrame`
-dataclasses. `lume_model_api/api/` turns those into wire dicts. Keep that direction, because it
-is what lets the model layer be used from a notebook without starting a web server.
+**A dead pool is never rebuilt.** `ProcessPoolExecutor` latches broken, so one lost worker means
+the pool can never serve another evaluate. Rebuilding it would spawn K replacements while the old
+ones tear down, peaking at twice the model memory and turning a restart-recoverable failure into an
+OOM kill. It is marked dead instead, evaluates 503, and the pod restarts. A
+`LUME_EVALUATE_TIMEOUT_S` expiry is fatal for the same reason: a subprocess evaluate cannot be
+cancelled, so that worker is unreclaimable. A worker whose model broke itself takes the same route,
+even though its process is alive, because nothing in this pod can rebuild that model either. The
+three causes are distinguished by the `reason` label on `lume_pool_dead` and by `dead_reason`. See
+ARCHITECTURE, "When a worker dies".
 
-Inside `model/` there is one more rule, already noted in `registry.py`: `registry` must not
-import `beam_monitor`, because `beam_monitor` imports the registry.
+**A model can fail leaving the instance alive and inconsistent, and exception type alone cannot
+tell that from a bad request.** That is why `model/evaluate.py` runs lume's own validation loop
+itself in `_prevalidate` before calling `model.set()`, rather than inferring attribution from what
+was raised. lume raises `ValueError` and `TypeError` for a bad value, and so do numpy and a broken
+lattice, so a poisoned worker used to report a request that set nothing at all as the caller's
+fault with a 400, which told the client not to retry and so escalated to nothing. Anything
+escaping `model.set()` after pre-validation passes is the model's own failure and becomes
+`ModelUnusable`, which must stay a `RuntimeError`: `UnknownVariable` and `InvalidInput` are both
+`ValueError`s and `main.evaluate_v1` catches that pair to answer 400. Do not widen
+`_prevalidate` past what `LUMEModel.set` checks either, because an over-eager classifier turns
+every bad request into a latched worker and a pod restart. See ARCHITECTURE, "A model that breaks
+itself is `unusable`", and POISONED_WORKER for the measurements.
 
-## Lazy imports are deliberate. Do not hoist them to module top
+**`model.reset()` must never be called on a Bmad model**, and this service never does. It is the
+obvious-looking recovery and it is destructive and permanent even on a healthy instance:
+`LUMEBmadModel.__init__` snapshots `_initial_state` before `track_type` is set to `"beam"`, so
+`reset()` writes back `"single"` and unregisters 24 outputs including every screen. Reason
+recorded in ARCHITECTURE so nobody reaches for it.
 
-Several imports sit inside functions on purpose. Moving them to the top of the file is the most
-likely way to break this package, and it breaks it in CI rather than at review time.
+**`GET /healthz` exists so the probes can restart such a pod, and must stay out of
+`openapi.json`.** `include_in_schema=False` is load-bearing: not a contract a consumer may pin, and
+adding it needed no schema regeneration. Do not make `GET /api/v1/models` the probe target, since
+that route has to keep listing the models that still work when one pool has died.
+
+**Live input PVs are never pruned permanently.** An unreadable id is skipped for that frame only.
+An earlier version dropped every id that failed its first read, so one unreachable CA gateway at
+startup permanently degraded the pod and the stream served design values labelled as live for the
+rest of its life. Zero connected PVs raises rather than returning `{}`, for the same reason.
+
+**Non-finite numbers are rejected inbound and rendered `null` outbound, on purpose.** A NaN knob
+passes lume's range check silently (every comparison against NaN is False) and produces a NaN beam
+that looks like a physics result, so a request carrying one is a 422. A NaN *result* is legitimate
+physics, so it becomes JSON `null` on both paths rather than costing the frame.
+
+**`model`, `version` and `input_sources` are attached by the sender, not the serializer**, and both
+senders (`main.evaluate_v1` and `LiveHub._run`) must attach all three. Only the sender knows
+provenance. `SENDER_ADDED` in `tests/test_wire_shape.py` pins the set.
+
+**`result_to_wire` must emit every key unconditionally, and every requested output id.** The SSE
+path has no `response_model`, so a conditional key reaches a client genuinely missing and does not
+change `openapi.json`, which means no consumer can detect it. Explained in
+[API.md](docs/API.md#result_to_wire-emits-every-key-on-every-call-and-every-requested-output-id).
+
+**Warmup is sequential across models** and the baseline merge applies every non-constant knob.
+Neither is an optimization opportunity. See ARCHITECTURE.
+
+**The baseline merge is only correct while no two inputs alias one control**, and that is what
+`introspect._resolve_aliases` enforces. Because the merge writes every non-constant knob in a single
+`model.set()`, two writable handles on one underlying control are both written and the one applied
+last wins. virtual-accelerator publishes exactly that for every magnet, mapping `BCTRL` and `BDES`
+to the same variable class, so setting only `BCTRL` was a silent no-op: the response echoed the
+caller's value with `source: "request"` while the magnet held its default, and a full-range quad
+scan came back perfectly flat. One handle per control is published as an input and the rest become
+read-only outputs carrying `alias_of`. Do not "simplify" this away by trusting ids to be distinct.
+
+**No per-model tables.** No screen list, no input allowlist, no range override file, no units map.
+The previous version had all of those, hand-typed for one model, and they drifted. A missing range
+or unit is fixed upstream in the model. See ADDING_A_MODEL, "Pushing metadata upstream".
+`introspect.ALIAS_PREFERENCE` is the one near-exception and is deliberately not a table: it holds
+final id segments, not variable ids, and it only breaks a tie the model itself leaves ambiguous. It
+carries a `REVISIT_ALIASES` note for when a non-Bmad backend arrives.
+
+**No unprefixed default-model route.** `/api/config` and friends are gone and 404 on purpose, and
+`tests/test_app_demo.py` asserts it. An alias for "the first model" would work by accident on a
+one-model pod and break when a second is added.
+
+**No mock mode.** The demo model in `model/demo.py` is a real `LUMEModel` on the same describe,
+evaluate, serialize and pool path as `cu_hxr_staged`, which is what makes a green test run mean
+anything. It replaced a mock in the api layer that derived every screen from one knob, so switching
+screens changed nothing and the bug was invisible until someone ran a real model. Keep it
+exercising every branch (a model range, a derived range, a constant, two screens with one image
+between them, non-image arrays, a plain scalar), because CI has no other model, and keep it
+deterministic, which the wire-shape and subsampling tests rely on.
+
+**`lume-base` is a required dependency, not an extra.** Its variable classes are how the service
+discovers inputs, outputs and screens (`introspect.variable_kind` does `isinstance` against them),
+and the demo model subclasses `LUMEModel`. Safe as a hard dependency: pure Python plus numpy, h5py
+and openpmd-beamphysics.
+
+## Lazy imports are deliberate. Do not hoist them
 
 | Import | Where | Why it must stay lazy |
 | --- | --- | --- |
-| `virtual_accelerator` | `model/registry.py:30` | Not on PyPI. Installed from a pinned git ref in the image only. |
-| `scipy.ndimage` | `model/beam_monitor.py:49` | Only the real screen PSF needs it. |
-| `epics` (pyepics) | `model/epics_controls.py:39,44` | An `[epics]` extra, absent in CI. Also must be imported *after* the CA env vars are set. |
-| `ModelImageSource` | `api/source.py:30` | Pulls in torch. Mock mode must never load it. |
-| `LiveHub` | `api/main.py:89` | Only the live role needs it. |
+| the hosted model (`virtual_accelerator`, ...) | `model/loader.py`, `build_model` via `importlib` | Not on PyPI, installed from a pinned git ref in the image only, and it pulls torch or pytao. Never imported in the main process. |
+| `scipy.ndimage` | `api/serialize.py`, `_smooth` | Only the opt-in `smooth_images_sigma_px` path needs it, and this module is imported by every worker on every startup. |
+| `epics` (pyepics) | `model/live_inputs.py`, `EpicsInputProvider.__init__` | An `[epics]` extra, absent in CI. Must also be imported **after** the CA env vars are set, because channel access reads them once at import. |
+| `lume.variables` | `model/introspect.py` `variable_kind`, `model/evaluate.py` `_coerce_control` | Keeps main-process import cheap. Not optional, see above. |
+| `beamphysics.ParticleGroup` | `model/demo.py`, `_beam` | Only needed when the demo model actually runs. |
+| `LiveHub`, `TooManyStreams` | `api/main.py`, `lifespan` and `live_stream` | Only the `live` and `all` roles may load them. |
+| `describe`, `build_model`, `result_to_wire`, `evaluate`, `tempfile` | `api/pool.py`, `_init_worker` and `_worker_evaluate` | Worker-side, imported by absolute module path because `spawn` re-imports rather than inheriting memory. `ModelUnusable` from the same module is imported at the top instead, because `_submit` runs in the main process and has to name it to classify what a worker raised. |
 
-The test that this still holds is simply that `pytest` and `python scripts/dump_openapi.py` run
-in a plain venv with no torch, no pytao, no Bmad and no EPICS. If you hoist one of these, that
-stops being true and CI fails on an unrelated pull request.
-
-`caproto` is the exception: it is imported at module top in `model/fake_epics_ioc.py`, which
-`api/main.py` imports, so it loads on every startup and is a required dependency. That is why it
-is not an extra.
-
-## The model pool is processes, not threads, and that is not negotiable
-
-`api/pool.py` uses a `spawn` `ProcessPoolExecutor`. Three constraints drive this:
-
-- Two model instances in one process segfault (torch double-load), and `pytao` is not
-  thread-safe. So process isolation is required, not just preferred.
-- `fork` with torch and OpenMP is unsafe, hence `spawn`.
-- `spawn` means workers re-import the package rather than inheriting memory, which is why
-  `_init_worker` and `_worker_evaluate` import by absolute module path.
-
-**Workers `chdir` into a fresh temp directory** (`pool.py:43`), so K workers writing files cannot
-collide. Anything in `model/` that resolves a path relative to the current directory will read
-the wrong place inside a worker while working fine in a test. Use absolute paths or paths derived
-from `__file__`.
-
-`HDF5_USE_FILE_LOCKING=FALSE` is set before HDF5 loads because K workers share the read-only
-design-beam file and HDF5's default lock rejects the concurrent open with `[Errno 11]`.
-
-## Mock mode does not vary output by screen
-
-`LUME_MOCK=1` is the right way to develop and is what CI uses, but know its one sharp edge:
-`MockImageSource.snapshot` derives every beam value from a single `knob` computed from two input
-PVs (`SOLN:IN20:121:BCTRL` and `QUAD:IN20:525:BCTRL`). `screen_key` only selects the label and
-whether an image exists at all.
-
-So in mock mode **OTR3 and OTR4 return identical beam values**, and only OTR2 differs, by having
-no image. If you are chasing "switching screens does not change the output", that is the mock,
-not a bug. The real model genuinely differs per screen because each screen has its own
-`particle_source`. Verify screen-dependent behaviour against the real model or not at all.
+The test that this still holds is that `pytest` and `python scripts/dump_openapi.py` run in a plain
+venv with no torch, no pytao, no Bmad and no EPICS. Hoisting one of these fails CI on an unrelated
+pull request.
 
 ## Changing the response schema: three things move together
 
-Editing `api/schemas.py` or a route means all of these, or CI fails:
+Regenerating `openapi.json` under the pinned fastapi and pydantic, updating the longhand field sets
+in `tests/test_api_contract.py`, and emitting the new key from the serializer or from both senders.
+The procedure is in [API.md](docs/API.md#changing-the-contract).
 
-1. `python scripts/dump_openapi.py`, and commit `openapi.json`.
-2. Update the expected field sets in `tests/test_api_contract.py`. They are written out by hand
-   on purpose, so that a regenerated snapshot cannot hide a rename.
-3. If you added a field to `EvaluateV1Response`, add it to the dict in `frame_to_wire` too. See
-   the next section.
+**Additive only, from the move to `/api/v1/models/{name}/...` onward.** Renaming or removing a
+field, making an optional one required, or moving a path again needs `/api/v2`, because consumers
+pin a git ref and a rename here is silent for them until they refetch. The `BREAKING` string in
+`tests/test_api_contract.py` says the same thing and the two must agree.
 
-**Regenerate `openapi.json` with the pinned versions.** `fastapi==0.141.1` and
-`pydantic==2.13.4` generate the JSON schema, and a newer pair emits harmless but different
-output. Regenerating under whatever pip resolved produces a large spurious diff, and committing
-it breaks CI, which still uses the pins.
+## Smaller things that look broken and are not
 
-**Renaming or removing a v1 field needs `/api/v2`.** Adding an optional field is fine. Consumers
-in other repos pin a git ref, so a rename here is silent for them until they refetch.
-
-## `frame_to_wire` must emit every key unconditionally
-
-The HTTP endpoint has a `response_model`, so FastAPI fills in anything the serializer omits. The
-SSE stream does not: `api/main.py live_stream` hands the dict straight to `json.dumps`. A key
-made conditional there reaches clients genuinely absent, and because clients type the stream
-from `EvaluateV1Response` they assume it is present.
-
-The trap is that this does not change `openapi.json`, so no consumer can detect it by refetching
-the schema, and there is no type error anywhere. `tests/test_wire_shape.py` is the only thing
-standing between a conditional key and a broken client, which is why it is parametrized over
-every screen: a key conditional on image data passes on OTR3 and OTR4 and fails only on OTR2.
-
-## Verifying that a packaging change actually works
-
-Two failure modes here look like success. Both have bitten this repo and both are guarded in the
-Dockerfile comments, but if you are changing packaging, test it properly.
-
-**`pip install -e .` with the package directory absent exits 0.** It reports
-`Successfully installed lume-model-api-0.1.0`, finds no packages, and then every import fails
-with `ModuleNotFoundError` even after the code arrives. This is why the `Dockerfile` copies
-`lume_model_api/` *before* installing. Reversing those two lines produces a broken image with a
-green build.
-
-**`uvicorn` always puts the current directory on `sys.path`.** Its CLI defaults `--app-dir` to
-`""` and does `sys.path.insert(0, app_dir)` unconditionally. So launching from the repo root
-imports the source tree whether or not the package is installed, and in the container
-`WORKDIR /app` does the same. To actually test an install:
-
-```bash
-cd /tmp && LUME_MOCK=1 /path/to/.venv/bin/uvicorn --app-dir /nonexistent \
-  lume_model_api.api.main:app --port 8001
-```
-
-Also check the wheel, because an editable install masks a bad `packages.find`:
-
-```bash
-pip wheel --no-deps . -w /tmp/wh && unzip -l /tmp/wh/*.whl | grep lume_model_api/
-```
-
-The `include = ["lume_model_api*"]` trailing `*` in `pyproject.toml` is load-bearing. Without it
-setuptools matches the name exactly and silently drops both subpackages.
-
-## Things that look broken and should be left alone
-
-- **The image does not build from scratch.** The committed `VA_REF` points at a
-  virtual-accelerator revision that removed `virtual_accelerator.models.staged_model`, which
-  `model/registry.py:30` imports. Production runs an older recipe that is not in the repo. This
-  predates the repo split and fixing it means porting `registry.py` to the new
-  virtual-accelerator API. Do not bundle that with unrelated work. Details in
-  `docs/BACKEND.md`.
-- **k8s objects are still named `lume-monitor-*` in namespace `lume-visualizations`.** Only the
-  image name was updated. Renaming the Deployments, Services or namespace would orphan the
-  running production service rather than update it.
-- **`distribution.coords` ships a `weight` array** that phase-space plots do not use, costing
-  roughly 17% extra payload. Deliberate: a distribution without weights is incomplete for
-  physics callers. Reasoning in `docs/BACKEND.md`. Do not add an `include_weight` flag.
-- **`lume_model_api/static/` is gitignored.** It is where a UI repo's build lands. Never commit
-  one here.
-- **The `[project.scripts]` entry is `lume-model-api-fake-ioc`,** not `lume-fake-epics-ioc`. The
-  old name still exists in `lume-visualizations`, and two packages claiming one script name means
-  whichever installed last wins with no warning.
+- **The lume stack is pinned in the `va` extra in `pyproject.toml` on purpose, and lume-bmad
+  must stay a git ref.** virtual-accelerator declares bare `lume-*` requirements, and the released
+  lume-bmad drops every beam variable, for the reason in the `output_beam` bullet below. The
+  Dockerfile and the README's local install both use that extra, so never re-pin elsewhere.
+  `conda install bmad pytao` is still unpinned, so a fresh solve can pull
+  a Bmad that rejects a model's `tao.init`. See DEPLOY, "Building the image".
+- **The k8s objects are a new set, not a rename.** `lume-model-api-*` in namespace
+  `lume-model-api` on the `/lume-model-api` prefix run beside the old monolith's `lume-monitor-*`
+  objects, which belong to the lume-visualizations repo. Nothing here treats `/live-monitor` as
+  this API's path.
+- **Particle `coords` ships a `weight` array** that phase-space plots do not use, for about 17%
+  extra payload. A distribution without per-particle charge is incomplete for physics callers, so
+  do not add an `include_weight` flag. `stats` are computed on the full beam, before subsampling.
+- **`smooth_images_sigma_px` is off by default and does not renormalize.** Blurring every 2-D array
+  is wrong for a generic host, and a rescale would invalidate the declared unit.
+- **`output_beam` is excluded from screens** (a screen is somewhere you can point a camera), and
+  writable non-scalar variables are published nowhere, logged at INFO so a missing knob is
+  explainable. That rule is right and stays, but know its failure mode: a variable that is read-only
+  by contract can still arrive with `read_only=False`, because lume's `ReadOnlyActionMixin` enforces
+  the flag with a pydantic validator and pydantic does not validate defaults unless the model sets
+  `validate_default`, which `lume.variables.Variable` does not. A model author who mixes in
+  `ReadOnlyActionMixin` and leaves the flag alone gets a variable this package silently drops. That
+  is exactly how every `<ele>_beam` on `cu_hxr_staged` disappeared, leaving screen images with no
+  particles and `screens: []`. Nothing here checks for it. The lume-bmad pin in `pyproject.toml`
+  plus the Dockerfile's build-time assertion is what keeps it from recurring, so do not treat
+  either as redundant.
+- **`lume_model_api/static/` is gitignored.** It is where a UI repo's build lands. Never commit one.
+- **The live producer must stay `replicas: 1`.** N replicas would each read EPICS and evaluate,
+  costing N times the work and showing viewers divergent frames.
+- **`README.md` must keep existing.** `pyproject.toml` declares `readme = "README.md"` and the
+  Dockerfile copies it, so the build fails without it.
 
 ## House style
 
-No em dashes and no semicolons in prose, in docs or in comments. Comments should say *why*, not
-restate the code.
+No emojis, no em dashes and no semicolons in prose, in docs or in comments. Complete sentences.
+Short paragraphs, and tables only for facts that actually enumerate. Comments and docs say *why*,
+not what. No line numbers in prose: a file path plus a function or symbol name does not rot.

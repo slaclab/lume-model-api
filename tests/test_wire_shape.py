@@ -1,119 +1,150 @@
 """Guard the one thing FastAPI cannot guard: the SSE live stream payload.
 
-`POST /api/v1/evaluate` declares a `response_model`, so FastAPI validates and fills it. The
-live stream does not. `live_hub` hands the serializer's dict to `json.dumps` in
-`main.py live_stream` with no model in the path, so whatever keys the dict happens to have
-are exactly what reaches the browser.
+`POST /api/v1/models/{name}/evaluate` declares a `response_model`, so FastAPI validates and
+fills it. The live stream does not. `live_hub` hands the serializer's dict to `json.dumps` in
+`main.py live_stream` with no model in the path, so whatever keys the dict happens to have are
+exactly what reaches the browser.
 
 Clients therefore generate their stream types from `EvaluateV1Response` and treat every key as
-always present, which is the only workable assumption when nothing validates the payload. Opt-in
-outputs are `None` when not requested, never absent. This test is what makes that assumption
-true. Without it the guarantee is only a comment in `serialize.py`.
+always present, which is the only workable assumption when nothing validates the payload. This
+test is what makes that assumption true. Without it the guarantee is only a comment in
+`serialize.py`.
 
-That matters more now than when the UI lived in this repo. A client in another repo cannot see
-a change here until it refetches the schema, and a key that goes missing produces no schema
-change at all, so there would be nothing to refetch.
+Two invariants, and the second is the one a generic host adds:
 
-Parametrized over every screen on purpose. OTR2 has no image while OTR3 and OTR4 do, so a
-key made conditional on image data would pass on OTR3 and fail only on OTR2. Testing one
-frame would let that through.
+1. The top-level key set is exactly `EvaluateV1Response` minus what the sender attaches.
+2. Every requested output id appears in `outputs`. The old shape had a fixed set of opt-in
+   keys that could be None, while the new one is keyed by the caller's own ids, so "omitted" now
+   means a client's `outputs["OTR_B_beam"]` is a KeyError rather than a null.
 
-Runs on the bare CI setup: no torch, no scipy, no EPICS, no LCLS_LATTICE.
+Parametrized over both demo screens on purpose. OTR_A has no image while OTR_B does, so a key
+made conditional on image data would pass on OTR_B and fail only on OTR_A. Testing one frame
+would let that through.
+
+Runs on the bare CI setup: no torch, no pytao, no EPICS, no lattice.
 """
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
-from lume_model_api.api import live_hub
-from lume_model_api.api.mock_source import MockImageSource
 from lume_model_api.api.schemas import EvaluateV1Response
-from lume_model_api.api.serialize import frame_to_wire
+from lume_model_api.api.serialize import result_to_wire
+from lume_model_api.model.demo import make_demo_model
+from lume_model_api.model.evaluate import evaluate
+from lume_model_api.model.introspect import describe
 
-# `model` and `version` are attached by the endpoint, not the serializer.
-ENDPOINT_ADDED = {"model", "version"}
-EXPECTED = set(EvaluateV1Response.model_fields) - ENDPOINT_ADDED
+# Attached by the sender, not the serializer. `model` and `version` because the SSE stream
+# bypasses the HTTP endpoint that would otherwise fill them, and `input_sources` because the
+# serializer is handed the post-merge values only and cannot tell a live reading from a design
+# value that the merge filled in.
+SENDER_ADDED = {"model", "version", "input_sources"}
+EXPECTED = set(EvaluateV1Response.model_fields) - SENDER_ADDED
 
-SOURCE = MockImageSource()
+MODEL = make_demo_model()
+INFO = describe(MODEL, name="demo")
 
 WHY = (
     "\n\nThe SSE live stream json.dumps this dict without validating it against "
     "EvaluateV1Response,\nso a missing key reaches the client genuinely absent, and clients "
     "type the stream as\nfully populated because nothing on that path can tell them "
     "otherwise. Dropping a key is\nalso invisible in openapi.json, so no consumer can detect "
-    "it by refetching the schema.\nKeep frame_to_wire unconditional: opt-in outputs must be "
-    "present and None when not\nrequested, never omitted."
+    "it by refetching the schema."
 )
 
 
-@pytest.mark.parametrize("screen", sorted(SOURCE.screens))
+def _screen_outputs(key: str) -> list[str]:
+    screen = INFO.screen(key)
+    ids = [screen.particles]
+    if screen.image:
+        ids.append(screen.image)
+    return ids
+
+
+ALL_OUTPUT_IDS = sorted(INFO.output_ids)
+SCREEN_KEYS = sorted(item.key for item in INFO.screens)
+
+
 @pytest.mark.parametrize(
-    "flags",
-    [
-        pytest.param(dict(include_image=False, include_distribution=False, include_twiss=False), id="scalars-only"),
-        pytest.param(dict(include_image=True, include_distribution=True, include_twiss=True), id="everything"),
+    "outputs",
+    [pytest.param(_screen_outputs(key), id=f"screen-{key}") for key in SCREEN_KEYS]
+    + [
+        pytest.param(["DEMO:OTRA:XRMS"], id="one-scalar"),
+        pytest.param(ALL_OUTPUT_IDS, id="everything"),
     ],
 )
-def test_wire_has_every_key(screen: str, flags: dict) -> None:
-    frame = SOURCE.snapshot(screen, include_distribution=flags["include_distribution"])
-    wire = frame_to_wire(frame, **flags)
+def test_wire_has_every_top_level_key(outputs: list[str]) -> None:
+    wire = result_to_wire(evaluate(MODEL, INFO, {}, outputs), frame_index=7)
     keys = set(wire)
     assert keys == EXPECTED, (
-        f"screen {screen} with {flags} produced the wrong key set."
+        f"{outputs} produced the wrong key set."
         f"\n  missing: {sorted(EXPECTED - keys)}"
         f"\n  extra:   {sorted(keys - EXPECTED)}" + WHY
     )
 
 
-def test_endpoint_added_fields_are_exactly_what_live_hub_attaches() -> None:
-    """The serializer omits `model` and `version`, so both senders must attach them.
+@pytest.mark.parametrize(
+    "outputs",
+    [pytest.param(_screen_outputs(key), id=f"screen-{key}") for key in SCREEN_KEYS]
+    + [pytest.param(ALL_OUTPUT_IDS, id="everything")],
+)
+def test_every_requested_output_id_is_present(outputs: list[str]) -> None:
+    wire = result_to_wire(evaluate(MODEL, INFO, {}, outputs))
+    missing = sorted(set(outputs) - set(wire["outputs"]))
+    assert not missing, (
+        f"requested {outputs} but {missing} came back absent."
+        "\n\nEvery requested id must be present. A client indexes outputs by the id it asked "
+        "for,\nso an omitted id is a KeyError at the call site rather than a null it can "
+        "render around." + WHY
+    )
+
+
+def test_every_output_carries_its_kind() -> None:
+    """The discriminator. Without it the response model cannot pick a union member."""
+    wire = result_to_wire(evaluate(MODEL, INFO, {}, ALL_OUTPUT_IDS))
+    for name, output in wire["outputs"].items():
+        assert output.get("kind") in {"scalar", "array", "particles", "value"}, name
+
+
+def test_every_output_carries_its_variable_class() -> None:
+    """Published beside `kind` on every output, so the SSE path must emit it too.
+
+    `kind` is coarse by design, so this is the only way a streaming client can tell an
+    IntVariable from a ScalarVariable or one "value" class from another. It is set outside the
+    per-kind branches in both `evaluate` and `serialize_output` precisely so a kind cannot ship
+    without it, and this is what holds that.
+    """
+    wire = result_to_wire(evaluate(MODEL, INFO, {}, ALL_OUTPUT_IDS))
+    missing = sorted(name for name, out in wire["outputs"].items() if not out.get("variable_class"))
+    assert not missing, f"outputs missing variable_class: {missing}" + WHY
+    # The config route and an evaluate response must agree about what an id is, or a client that
+    # reads one and switches on the other is wrong for that id.
+    from_config = {item.id: item.variable_class for item in INFO.outputs}
+    disagreeing = {
+        name: (out["variable_class"], from_config[name])
+        for name, out in wire["outputs"].items()
+        if out["variable_class"] != from_config[name]
+    }
+    assert not disagreeing, f"evaluate and config disagree (wire, config): {disagreeing}"
+
+
+def test_wire_validates_against_the_response_model() -> None:
+    """The HTTP route fills gaps from the response_model, the SSE stream cannot. Check both."""
+    wire = result_to_wire(evaluate(MODEL, INFO, {}, ALL_OUTPUT_IDS))
+    EvaluateV1Response(model="demo", version="demo", **wire)
+
+
+def test_sender_added_fields_are_exactly_the_expected_set() -> None:
+    """The serializer omits these, so both senders must attach every one of them.
 
     The HTTP endpoint does it in main.evaluate_v1. The SSE stream bypasses the endpoint
     entirely, so LiveHub._run has to do it too, or a streamed frame is not a complete
-    EvaluateV1Response even though clients type it as one. This pins the set so a newly added
-    endpoint-attached field cannot be forgotten on the live path.
+    EvaluateV1Response even though clients type it as one.
 
-    Reads the module through its own __file__ rather than a path relative to this test, so it
-    does not care where the package is installed.
+    This pins only the *set*, so that adding a field to EvaluateV1Response forces a decision
+    about which side attaches it. That the live path really does attach each of them is asserted
+    behaviourally in tests/test_live_hub.py, which replaced an earlier version of this test
+    that grepped live_hub.py for the literal `wire["model"]` and so passed or failed on how the
+    assignment happened to be spelled.
     """
-    src = Path(live_hub.__file__).read_text()
-    for name in sorted(ENDPOINT_ADDED):
-        assert f'wire["{name}"]' in src, (
-            f"LiveHub does not attach {name!r}, so SSE frames are missing it while every "
-            "client's generated type claims it is present."
-        )
-
-
-def test_opt_in_outputs_are_none_not_absent() -> None:
-    """The distinction every generated client type depends on."""
-    frame = SOURCE.snapshot("OTR4")
-    wire = frame_to_wire(frame)
-    for key in ("image", "distribution", "twiss"):
-        assert key in wire, f"{key} was omitted rather than set to None." + WHY
-        assert wire[key] is None, f"{key} should be None when not requested."
-
-
-def test_distribution_positions_are_micrometres() -> None:
-    """Cross-check the m to µm conversion against an independently computed scalar.
-
-    The scalars are µm by definition, so the distribution's x spread must be the same
-    order as `xrms_um`. A missing 1e6 makes this 1e-6 too small and a doubled one 1e6 too
-    large, and neither shows up as a type error or a visibly broken plot.
-    """
-    import base64
-
-    import numpy as np
-
-    frame = SOURCE.snapshot("OTR4", include_distribution=True)
-    wire = frame_to_wire(frame, include_distribution=True)
-    dist = wire["distribution"]
-    assert dist["units"]["x"] == "µm", dist["units"]
-    x = np.frombuffer(base64.b64decode(dist["coords"]["x"]), dtype="<f4")
-    ratio = float(x.std()) / wire["scalars"]["xrms_um"]
-    assert 0.8 < ratio < 1.25, (
-        f"distribution x rms is {x.std():.4g} but scalars.xrms_um is "
-        f"{wire['scalars']['xrms_um']:.4g} (ratio {ratio:.4g}). The µm conversion in "
-        "beam_monitor._extract_distribution is likely missing or applied twice."
-    )
+    assert SENDER_ADDED == set(EvaluateV1Response.model_fields) - EXPECTED

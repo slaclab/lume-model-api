@@ -1,5 +1,6 @@
-# Live producer. The ONE EPICS reader: runs the broadcast hub (one loop per
-# active screen -> SSE fan-out) and serves /api/live/stream + /api/machine-snapshot.
+# Live producer. The ONE EPICS reader: runs a broadcast hub per hosted model (one loop per
+# active output set -> SSE fan-out) and serves each model's live/stream + machine-snapshot
+# routes under /api/v1/models/<name>/.
 #
 # replicas MUST stay 1. This is a singleton on purpose: if it ran on N replicas each
 # would independently read EPICS and evaluate, costing N x the model work and showing
@@ -7,36 +8,52 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: lume-monitor-live
-  namespace: lume-visualizations
+  name: lume-model-api-live
+  namespace: lume-model-api
 spec:
   replicas: 1
   strategy:
     type: Recreate  # singleton: don't run two EPICS readers during a rollout
   selector:
     matchLabels:
-      app: lume-monitor-live
+      app: lume-model-api-live
   template:
     metadata:
       labels:
-        app: lume-monitor-live
+        app: lume-model-api-live
     spec:
       containers:
-        - name: lume-monitor
+        - name: lume-model-api
           image: ghcr.io/slaclab/lume-model-api
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
           ports:
             - containerPort: 8000
               name: http
           env:
+            # The models this pod hosts, keyed by the URL name each answers on at
+            # /api/v1/models/<name>/... . Keep this in step with deployment.yaml: a model
+            # served by the eval pool but not here has no live stream.
+            #
+            # Memory scales with the SUM of workers across models, at roughly 2 GB per real
+            # model worker, so adding a model means raising requests and limits below. Each
+            # model also runs its own read loop per active output set.
+            - name: LUME_MODELS
+              value: '{"cu_hxr_staged": {"kwargs": {"n_particles": 1000, "end_element": "TD11"}}}'
+            - name: LUME_LIVE_SOURCE
+              value: "epics"
             - name: LUME_ROLE
               value: "live"
+            # The ingress prefix, used only for the links Swagger and redirects generate. The
+            # rewrite strips it, so every route the app serves still starts at /api.
+            - name: LUME_ROOT_PATH
+              value: /lume-model-api
             - name: LCLS_LATTICE
               value: /opt/lcls-lattice
             - name: KMP_DUPLICATE_LIB_OK
               value: "TRUE"
-            # Small pool: the hub evaluates once per screen per tick regardless of
-            # viewer count, so a couple of workers cover several concurrent screens.
+            # Small pool: a hub evaluates once per output set per tick regardless of viewer
+            # count, so a couple of workers cover several concurrent screens. Per model, and
+            # the default for any LUME_MODELS entry that does not set its own "workers".
             - name: LUME_POOL_WORKERS
               value: "2"
             - name: LUME_MAX_INFLIGHT
@@ -46,7 +63,7 @@ spec:
           envFrom:
             # Read-only EPICS Channel Access config for the live view.
             - configMapRef:
-                name: lume-epics-config
+                name: lume-model-api-epics-config
           resources:
             requests:
               cpu: "2"
@@ -54,19 +71,25 @@ spec:
             limits:
               cpu: "4"
               memory: 7Gi
+          # Probes target /healthz, not /api/v1/models. /healthz answers 200 only once every
+          # pool has warmed AND none has lost a worker, so a pod whose model subprocess died
+          # (unrecoverable in-process) is pulled from the Service and restarted instead of
+          # serving 503s until someone notices. /api/v1/models stays pure client discovery, so
+          # a pod hosting several models keeps listing the ones that still work.
+          # Model init (~25-30s): allow generous startup before readiness.
           startupProbe:
             httpGet:
-              path: /api/config
+              path: /healthz
               port: 8000
             periodSeconds: 5
             failureThreshold: 48
           readinessProbe:
             httpGet:
-              path: /api/config
+              path: /healthz
               port: 8000
             periodSeconds: 10
           livenessProbe:
             httpGet:
-              path: /api/config
+              path: /healthz
               port: 8000
             periodSeconds: 30
