@@ -1,0 +1,164 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 840" width="1100" height="840" role="img" aria-labelledby="t d">
+  <title id="t">Wiring a UI to lume-model-api, from the frontend's side</title>
+  <desc id="d">On page load the UI fetches config and builds its sliders, screen picker and readouts from the inputs, screens and outputs lists. In live mode it opens an EventSource on live/stream with the chosen screen and receives a frame each time the model finishes. In what-if mode it posts the slider values to evaluate and receives one result. Frames and evaluate results have the same shape, so one render function handles both by switching on each output's kind.</desc>
+
+  <style>
+    text { white-space: pre; }
+    .bg   { fill: #FFFFFF; }
+    .ttl  { font: 700 19px ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif; fill: #16181D; }
+    .sub  { font: 400 12.5px ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif; fill: #5C6370; }
+    .band { font: 600 10px ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif; fill: #8A91A0; letter-spacing: .09em; }
+    .box  { font: 600 13px ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif; fill: #16181D; }
+    .lbl  { font: 600 11px ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif; fill: #5C6370; }
+    .sm   { font: 400 11.5px ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif; fill: #3C4250; }
+    .mono { font: 400 11px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; fill: #16181D; }
+    .key  { font: 600 11px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; fill: #2F5FD0; }
+    .edge { font: 400 10.5px ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif; fill: #6B7280; }
+    .num  { font: 700 12px ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif; fill: #FFFFFF; }
+    .r-ui      { fill: #E8EFFC; stroke: #2F5FD0; stroke-width: 1.5; }
+    .r-wire    { fill: #F5F7FA; stroke: #C9CFD8; stroke-width: 1.25; }
+    .r-api     { fill: #FDF0DC; stroke: #B26A00; stroke-width: 1.5; }
+    .r-render  { fill: #EAF6EE; stroke: #1E7A45; stroke-width: 1.5; }
+    .row       { fill: none; stroke: #E1E5EB; stroke-width: 1; }
+    .badge     { fill: #2F5FD0; }
+    .arw       { stroke: #6B7280; stroke-width: 1.5; fill: none; }
+    .sse       { stroke: #2F5FD0; stroke-width: 1.75; fill: none; stroke-dasharray: 6 4; }
+    .feed      { stroke: #1E7A45; stroke-width: 1.5; fill: none; }
+  </style>
+
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#6B7280"/>
+    </marker>
+    <marker id="b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#2F5FD0"/>
+    </marker>
+    <marker id="g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#1E7A45"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1100" height="840"/>
+
+  <text class="ttl" x="28" y="34">Wiring a UI to lume-model-api</text>
+  <text class="sub" x="28" y="54">what your code sends, what comes back, and which part of your UI each field feeds</text>
+
+  <text class="band" x="40"  y="90">YOUR UI</text>
+  <text class="band" x="390" y="90">ON THE WIRE</text>
+  <text class="band" x="878" y="90">THE API</text>
+
+  <!-- the API as one black box spanning all three rows -->
+  <rect class="r-api" x="878" y="102" width="192" height="530" rx="8"/>
+  <text class="box" x="974" y="340" text-anchor="middle">lume-model-api</text>
+  <text class="sm"  x="974" y="362" text-anchor="middle">runs the beam model</text>
+  <text class="sm"  x="974" y="380" text-anchor="middle">live mode reads the</text>
+  <text class="sm"  x="974" y="396" text-anchor="middle">machine for you</text>
+  <text class="mono" x="974" y="426" text-anchor="middle">&lt;base&gt;/api/v1/models</text>
+  <text class="mono" x="974" y="442" text-anchor="middle">/cu_hxr_staged/…</text>
+
+  <!-- ================= ROW 1: on page load ================= -->
+  <rect class="row" x="28" y="102" width="836" height="178" rx="8"/>
+  <circle class="badge" cx="52" cy="124" r="10"/><text class="num" x="52" y="128" text-anchor="middle">1</text>
+  <text class="box" x="70" y="129">On page load: build the UI from config</text>
+
+  <rect class="r-ui" x="40" y="142" width="320" height="126" rx="6"/>
+  <text class="lbl" x="56" y="162">BUILT FROM THE RESPONSE</text>
+  <text class="key" x="56" y="184">inputs[]</text>
+  <text class="sm"  x="140" y="184">→ sliders: id, min, max, default, unit</text>
+  <text class="key" x="56" y="208">screens[]</text>
+  <text class="sm"  x="140" y="208">→ screen picker: one entry per key</text>
+  <text class="key" x="56" y="232">outputs[]</text>
+  <text class="sm"  x="140" y="232">→ readout picker: id, kind, unit</text>
+  <text class="edge" x="56" y="256">never hard-code ids, they change between model versions</text>
+
+  <rect class="r-wire" x="390" y="142" width="460" height="126" rx="6"/>
+  <text class="mono" x="406" y="162">GET …/config</text>
+  <text class="mono" x="406" y="184">{ inputs:  [{ id, unit, default, min, max }, …],</text>
+  <text class="mono" x="406" y="200">  screens: [{ key:       "OTR11",</text>
+  <text class="mono" x="406" y="216">              image:     "OTRS:LI21:237:Image:ArrayData",</text>
+  <text class="mono" x="406" y="232">              particles: "OTR11_beam" }, …],</text>
+  <text class="mono" x="406" y="248">  outputs: [{ id, kind, unit }, …] }</text>
+
+  <line class="arw" x1="852" y1="162" x2="876" y2="162" marker-end="url(#a)"/>
+  <line class="arw" x1="876" y1="210" x2="852" y2="210" marker-end="url(#a)"/>
+  <line class="feed" x1="388" y1="208" x2="362" y2="208" marker-end="url(#g)"/>
+
+  <!-- ================= ROW 2: live mode ================= -->
+  <rect class="row" x="28" y="292" width="836" height="172" rx="8"/>
+  <circle class="badge" cx="52" cy="314" r="10"/><text class="num" x="52" y="318" text-anchor="middle">2</text>
+  <text class="box" x="70" y="319">Live mode: watch the machine</text>
+
+  <rect class="r-ui" x="40" y="332" width="320" height="120" rx="6"/>
+  <text class="lbl" x="56" y="352">USER PICKS A SCREEN</text>
+  <text class="mono" x="56" y="372">src = new EventSource(url)</text>
+  <text class="mono" x="56" y="388">src.addEventListener("frame", e =&gt;</text>
+  <text class="mono" x="56" y="404">  render(JSON.parse(e.data)))</text>
+  <text class="sm"  x="56" y="426">switch screen: close() and reopen</text>
+  <text class="sm"  x="56" y="442">leave the view: close()</text>
+
+  <rect class="r-wire" x="390" y="332" width="460" height="120" rx="6"/>
+  <text class="mono" x="406" y="352">GET …/live/stream?screen=OTR11&amp;outputs=&lt;id&gt;,&lt;id&gt;</text>
+  <text class="sm"  x="406" y="374">one open connection, then a frame each time the model</text>
+  <text class="sm"  x="406" y="390">finishes (a few seconds). The latest frame arrives at once.</text>
+  <text class="mono" x="406" y="414">event: frame   { inputs, input_sources, outputs, … }</text>
+  <text class="mono" x="406" y="430">event: frame   { … }</text>
+  <text class="mono" x="406" y="446">event: frame   { … }</text>
+
+  <line class="arw" x1="852" y1="352" x2="876" y2="352" marker-end="url(#a)"/>
+  <line class="sse" x1="876" y1="414" x2="852" y2="414" marker-end="url(#b)"/>
+  <line class="sse" x1="876" y1="430" x2="852" y2="430" marker-end="url(#b)"/>
+  <line class="sse" x1="876" y1="446" x2="852" y2="446" marker-end="url(#b)"/>
+
+  <!-- ================= ROW 3: what-if mode ================= -->
+  <rect class="row" x="28" y="476" width="836" height="156" rx="8"/>
+  <circle class="badge" cx="52" cy="498" r="10"/><text class="num" x="52" y="502" text-anchor="middle">3</text>
+  <text class="box" x="70" y="503">What-if mode: try your own settings</text>
+
+  <rect class="r-ui" x="40" y="516" width="320" height="104" rx="6"/>
+  <text class="lbl" x="56" y="536">USER MOVES SLIDERS, CLICKS RUN</text>
+  <text class="mono" x="56" y="556">res = await fetch(url, { method:</text>
+  <text class="mono" x="56" y="572">  "POST", body: JSON.stringify(req) })</text>
+  <text class="mono" x="56" y="588">render(await res.json())</text>
+  <text class="sm"  x="56" y="610">tip: seed sliders from a live frame's inputs</text>
+
+  <rect class="r-wire" x="390" y="516" width="460" height="104" rx="6"/>
+  <text class="mono" x="406" y="536">POST …/evaluate</text>
+  <text class="mono" x="406" y="556">{ inputs: { "QUAD:IN20:361:BCTRL": -3.2 },</text>
+  <text class="mono" x="406" y="572">  screen: "OTR11", outputs: [&lt;id&gt;, …] }</text>
+  <text class="sm"  x="406" y="594">one response, same shape as a frame. Inputs you</text>
+  <text class="sm"  x="406" y="610">leave out use the model's design value.</text>
+
+  <line class="arw" x1="852" y1="536" x2="876" y2="536" marker-end="url(#a)"/>
+  <line class="arw" x1="876" y1="584" x2="852" y2="584" marker-end="url(#a)"/>
+
+  <!-- ================= shared render ================= -->
+  <line class="feed" x1="200" y1="620" x2="200" y2="650" marker-end="url(#g)"/>
+  <text class="edge" x="210" y="640">both modes call the same render()</text>
+
+  <rect class="r-render" x="28" y="654" width="1042" height="168" rx="8"/>
+  <text class="box" x="46" y="678">render(result): look up what you need by id, switch on kind</text>
+
+  <text class="lbl" x="46" y="702">WHERE TO FIND IT</text>
+  <text class="mono" x="46" y="722">result.outputs[screen.image]</text>
+  <text class="sm"   x="270" y="722">→ camera image</text>
+  <text class="mono" x="46" y="740">result.outputs[screen.particles]</text>
+  <text class="sm"   x="270" y="740">→ beam scatter plot</text>
+  <text class="mono" x="46" y="758">result.outputs[id]</text>
+  <text class="sm"   x="270" y="758">→ any readout the user picked</text>
+  <text class="mono" x="46" y="776">result.inputs</text>
+  <text class="sm"   x="270" y="776">→ the settings the model used</text>
+  <text class="mono" x="46" y="794">result.input_sources[id]</text>
+  <text class="sm"   x="270" y="794">→ "live", "request" or "baseline"</text>
+  <text class="edge" x="46" y="812">baseline means the value could not be read, so a design value was used. Worth showing.</text>
+
+  <text class="lbl" x="560" y="702">HOW TO DRAW IT, BY kind</text>
+  <text class="key" x="560" y="722">scalar</text>
+  <text class="sm"  x="650" y="722">value + unit. value can be null</text>
+  <text class="key" x="560" y="744">array</text>
+  <text class="sm"  x="650" y="744">decodeFloat32(data_b64), reshape by shape → heatmap</text>
+  <text class="key" x="560" y="766">particles</text>
+  <text class="sm"  x="650" y="766">decodeFloat32(coords.x), coords.px, … → scatter</text>
+  <text class="sm"  x="650" y="782">stats.sigma_x, norm_emit_x, … → table</text>
+  <text class="key" x="560" y="804">value</text>
+  <text class="sm"  x="650" y="804">show as text</text>
+</svg>

@@ -1,0 +1,150 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 660" width="1000" height="660" role="img" aria-labelledby="t d">
+  <title id="t">How a UI talks to lume-model-api</title>
+  <desc id="d">A browser UI uses one base URL. It discovers models and their ids with GET config, runs what-if calculations with POST evaluate, and opens a Server-Sent Events stream for live data. The ingress sends live routes to the single live pod and everything else to the autoscaled eval pods. Only the live pod reads machine values from EPICS. It runs the model and sends each frame to every viewer of the same output set.</desc>
+
+  <style>
+    .bg   { fill: #FFFFFF; }
+    .ttl  { font: 700 19px ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif; fill: #16181D; }
+    .sub  { font: 400 12.5px ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif; fill: #5C6370; }
+    .band { font: 600 10px ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif; fill: #8A91A0; letter-spacing: .09em; }
+    .box  { font: 600 13px ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif; fill: #16181D; }
+    .lbl  { font: 600 11px ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif; fill: #5C6370; }
+    .sm   { font: 400 11.5px ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif; fill: #5C6370; }
+    .mono { font: 400 11.5px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; fill: #16181D; }
+    .edge { font: 400 10.5px ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif; fill: #6B7280; }
+    .foot { font: 400 12px ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif; fill: #3C4250; }
+    .num  { font: 700 12px ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif; fill: #FFFFFF; }
+    .r-neutral { fill: #F5F7FA; stroke: #C9CFD8; stroke-width: 1.25; }
+    .r-web     { fill: #E8EFFC; stroke: #2F5FD0; stroke-width: 1.5; }
+    .r-model   { fill: #FDF0DC; stroke: #B26A00; stroke-width: 1.5; }
+    .r-ext     { fill: #EDEFF3; stroke: #4A5568; stroke-width: 1.25; }
+    .badge     { fill: #2F5FD0; }
+    .arw       { stroke: #6B7280; stroke-width: 1.5; fill: none; }
+    .sse       { stroke: #2F5FD0; stroke-width: 1.75; fill: none; stroke-dasharray: 6 4; }
+  </style>
+
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#6B7280"/>
+    </marker>
+    <marker id="b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#2F5FD0"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1000" height="660"/>
+
+  <text class="ttl" x="28" y="34">How a UI talks to lume-model-api</text>
+  <text class="sub" x="28" y="54">one base URL, two kinds of call: ask once over HTTP, or subscribe to a live stream</text>
+
+  <!-- column labels -->
+  <text class="band" x="40"  y="96">YOUR UI (BROWSER)</text>
+  <text class="band" x="352" y="96">INGRESS</text>
+  <text class="band" x="590" y="96">BACKEND</text>
+  <text class="band" x="852" y="96">MACHINE</text>
+
+  <!-- ===== browser column: one box per thing the UI does ===== -->
+  <!-- 1 discover -->
+  <rect class="r-neutral" x="40" y="112" width="262" height="84" rx="6"/>
+  <circle class="badge" cx="60" cy="132" r="10"/><text class="num" x="60" y="136" text-anchor="middle">1</text>
+  <text class="box" x="78" y="137">Discover (on page load)</text>
+  <text class="mono" x="56" y="160">GET /api/v1/models</text>
+  <text class="mono" x="56" y="176">GET …/{name}/config</text>
+  <text class="sm"  x="56" y="191">ids of inputs, outputs, screens</text>
+
+  <!-- 2 what-if -->
+  <rect class="r-neutral" x="40" y="212" width="262" height="84" rx="6"/>
+  <circle class="badge" cx="60" cy="232" r="10"/><text class="num" x="60" y="236" text-anchor="middle">2</text>
+  <text class="box" x="78" y="237">What-if (optional)</text>
+  <text class="mono" x="56" y="260">POST …/{name}/evaluate</text>
+  <text class="sm"  x="56" y="277">send your own inputs,</text>
+  <text class="sm"  x="56" y="291">get one result back</text>
+
+  <!-- 3 live view -->
+  <rect class="r-web" x="40" y="320" width="262" height="112" rx="6"/>
+  <circle class="badge" cx="60" cy="340" r="10"/><text class="num" x="60" y="344" text-anchor="middle">3</text>
+  <text class="box" x="78" y="345">Live view</text>
+  <text class="mono" x="56" y="368">new EventSource(</text>
+  <text class="mono" x="72" y="384">…/{name}/live/stream</text>
+  <text class="mono" x="72" y="400">?screen=OTR11)</text>
+  <text class="sm"  x="56" y="422">frames arrive until source.close()</text>
+
+  <!-- ===== ingress: one box spanning all rows ===== -->
+  <rect class="r-neutral" x="352" y="112" width="186" height="320" rx="6"/>
+  <text class="box" x="445" y="140" text-anchor="middle">One base URL</text>
+  <text class="mono" x="445" y="162" text-anchor="middle">…slac.stanford.edu</text>
+  <text class="mono" x="445" y="178" text-anchor="middle">/lume-model-api</text>
+  <text class="sm"  x="445" y="214" text-anchor="middle">routes by path:</text>
+  <text class="mono" x="445" y="236" text-anchor="middle">/live/*</text>
+  <text class="sm"  x="445" y="252" text-anchor="middle">→ live pod</text>
+  <text class="sm"  x="445" y="276" text-anchor="middle">everything else</text>
+  <text class="sm"  x="445" y="292" text-anchor="middle">→ eval pods</text>
+  <text class="sm"  x="445" y="330" text-anchor="middle">SLAC network only</text>
+  <text class="sm"  x="445" y="346" text-anchor="middle">CORS open to any origin</text>
+  <text class="sm"  x="445" y="362" text-anchor="middle">no response buffering,</text>
+  <text class="sm"  x="445" y="378" text-anchor="middle">so frames are not held back</text>
+
+  <!-- ===== backend ===== -->
+  <rect class="r-model" x="590" y="112" width="210" height="184" rx="6"/>
+  <text class="box" x="606" y="137">eval pods</text>
+  <text class="lbl" x="606" y="155">autoscaled, several copies</text>
+  <text class="sm"  x="606" y="182">runs the model on the</text>
+  <text class="sm"  x="606" y="198">inputs you send</text>
+  <text class="sm"  x="606" y="224">anything you don't send</text>
+  <text class="sm"  x="606" y="240">uses the model's design value</text>
+  <text class="sm"  x="606" y="266">never reads the machine</text>
+
+  <rect class="r-model" x="590" y="320" width="210" height="112" rx="6"/>
+  <text class="box" x="606" y="345">live pod</text>
+  <text class="lbl" x="606" y="363">exactly one</text>
+  <text class="sm"  x="606" y="386">read machine → run model →</text>
+  <text class="sm"  x="606" y="402">send frame to every viewer</text>
+  <text class="sm"  x="606" y="418">of the same output set</text>
+
+  <!-- ===== machine ===== -->
+  <rect class="r-ext" x="852" y="320" width="120" height="112" rx="6"/>
+  <text class="box" x="912" y="350" text-anchor="middle">EPICS</text>
+  <text class="sm"  x="912" y="372" text-anchor="middle">magnet and RF</text>
+  <text class="sm"  x="912" y="388" text-anchor="middle">setpoints (PVs)</text>
+  <text class="sm"  x="912" y="414" text-anchor="middle">read-only</text>
+
+  <!-- ===== arrows: rows 1 and 2, request and response ===== -->
+  <line class="arw" x1="302" y1="146" x2="350" y2="146" marker-end="url(#a)"/>
+  <line class="arw" x1="350" y1="162" x2="304" y2="162" marker-end="url(#a)"/>
+  <line class="arw" x1="302" y1="246" x2="350" y2="246" marker-end="url(#a)"/>
+  <line class="arw" x1="350" y1="262" x2="304" y2="262" marker-end="url(#a)"/>
+  <text class="edge" x="326" y="206" text-anchor="middle">JSON</text>
+
+  <line class="arw" x1="540" y1="154" x2="588" y2="154" marker-start="url(#a)" marker-end="url(#a)"/>
+  <line class="arw" x1="540" y1="254" x2="588" y2="254" marker-start="url(#a)" marker-end="url(#a)"/>
+
+  <!-- ===== arrows: row 3, open once then frames keep coming ===== -->
+  <line class="arw" x1="302" y1="356" x2="350" y2="356" marker-end="url(#a)"/>
+  <line class="sse" x1="350" y1="384" x2="304" y2="384" marker-end="url(#b)"/>
+  <line class="sse" x1="350" y1="400" x2="304" y2="400" marker-end="url(#b)"/>
+  <line class="sse" x1="350" y1="416" x2="304" y2="416" marker-end="url(#b)"/>
+
+  <line class="arw" x1="540" y1="356" x2="588" y2="356" marker-end="url(#a)"/>
+  <line class="sse" x1="588" y1="400" x2="542" y2="400" marker-end="url(#b)"/>
+
+  <line class="arw" x1="850" y1="376" x2="802" y2="376" marker-end="url(#a)"/>
+  <text class="edge" x="826" y="366" text-anchor="middle">live</text>
+  <text class="edge" x="826" y="396" text-anchor="middle">values</text>
+
+  <!-- legend -->
+  <line class="arw" x1="40" y1="462" x2="80" y2="462" marker-end="url(#a)"/>
+  <text class="sm" x="88" y="466">request and response (plain HTTP)</text>
+  <line class="sse" x1="320" y1="462" x2="360" y2="462" marker-end="url(#b)"/>
+  <text class="sm" x="368" y="466">stream: one connection, a new frame each time the model finishes (a few seconds)</text>
+
+  <!-- ===== footer: what comes back ===== -->
+  <rect class="r-neutral" x="40" y="490" width="932" height="146" rx="6"/>
+  <text class="band" x="58" y="512">WHAT A FRAME CONTAINS</text>
+  <text class="mono" x="58" y="536">timestamp  frame_index  inputs  input_sources  outputs</text>
+  <text class="foot" x="58" y="556">input_sources says per input whether it was read "live" or fell back to "baseline". outputs is keyed by output id.</text>
+  <text class="foot" x="58" y="574">Each output has a kind: scalar, array (images), particles (beam) or value. Arrays are base64 float32. Units are the model's own.</text>
+  <text class="foot" x="58" y="592">POST evaluate returns the same outputs format, so one decoder serves both paths.</text>
+
+  <text class="band" x="58" y="616">ERRORS</text>
+  <text class="foot" x="122" y="616">400: bad request, fix it.  503: busy or model crashed, retry later.  A stream that drops mid-way reconnects by itself.</text>
+</svg>

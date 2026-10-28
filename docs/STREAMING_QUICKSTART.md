@@ -4,6 +4,10 @@ The LUME model API runs a beam physics model using live machine values and sends
 to the browser as a stream. This page covers the basics. See [API.md](API.md) for the full
 reference.
 
+![Wiring a UI to lume-model-api](ui-data-flow.svg)
+
+For where these requests go inside the deployment, see [ui-backend-communication.svg](ui-backend-communication.svg).
+
 ## Base URL
 
 ```
