@@ -194,3 +194,6 @@ input_beam.h5
 
 # Output of scripts/quad_scan_demo.py, which writes into the cwd by default.
 quad_scan*.png
+
+# One-off and superseded docs, kept locally for reference only.
+docs/archive/

@@ -1,0 +1,112 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 620" width="980" height="620" role="img" aria-labelledby="t d">
+  <title id="t">lume-model-api architecture: many models per pod, addressed by name</title>
+  <desc id="d">Consumers reach one origin and name the model in the path. The same image runs in two roles. The eval role autoscales to N replicas and serves config and evaluate. The live role is a singleton that reads EPICS and serves the SSE stream. Inside a process each hosted model owns its own pool of K model subprocesses. Models are built by a Python factory baked into the image, and after the migration also from the MLflow registry.</desc>
+
+  <style>
+    .bg   { fill: #FFFFFF; }
+    .ttl  { font: 700 19px ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif; fill: #16181D; }
+    .sub  { font: 400 12.5px ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif; fill: #5C6370; }
+    .band { font: 600 10px ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif; fill: #8A91A0; letter-spacing: .09em; }
+    .box  { font: 400 13px ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif; fill: #16181D; }
+    .lbl  { font: 600 11px ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif; fill: #5C6370; }
+    .sm   { font: 400 11.5px ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif; fill: #5C6370; }
+    .mono { font: 400 12.5px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; fill: #16181D; }
+    .edge { font: 400 10.5px ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif; fill: #6B7280; }
+    .foot { font: 400 12px ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif; fill: #3C4250; }
+    .r-neutral { fill: #F5F7FA; stroke: #C9CFD8; stroke-width: 1.25; }
+    .r-web     { fill: #E8EFFC; stroke: #2F5FD0; stroke-width: 1.5; }
+    .r-model   { fill: #FDF0DC; stroke: #B26A00; stroke-width: 1.5; }
+    .r-ext     { fill: #EDEFF3; stroke: #4A5568; stroke-width: 1.25; }
+    .r-new     { fill: #EAF6EE; stroke: #1E7A45; stroke-width: 1.5; stroke-dasharray: 5 4; }
+    .pod       { fill: none; stroke: #9AA2B1; stroke-width: 1.25; stroke-dasharray: 5 4; }
+    .stack     { fill: #FFFFFF; stroke: #9AA2B1; stroke-width: 1.25; }
+    .arw       { stroke: #6B7280; stroke-width: 1.5; fill: none; }
+  </style>
+
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#6B7280"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="980" height="620"/>
+
+  <text class="ttl" x="28" y="34">lume-model-api</text>
+  <text class="sub" x="28" y="54">many models per pod, addressed by name</text>
+
+  <!-- band labels, same vertical rhythm as the other diagram -->
+  <text class="band" x="28" y="104">CONSUMERS</text>
+  <text class="band" x="28" y="178">ROUTING</text>
+  <text class="band" x="28" y="304">RUNTIME</text>
+  <text class="band" x="28" y="491">MODEL SOURCE</text>
+
+  <!-- consumers -->
+  <rect class="r-neutral" x="150" y="78" width="802" height="44" rx="6"/>
+  <text class="box" x="551" y="105" text-anchor="middle">MCP skill  ·  trame app  ·  notebooks  ·  React UI</text>
+
+  <!-- routing: one origin -->
+  <rect class="r-neutral" x="150" y="152" width="802" height="44" rx="6"/>
+  <text class="mono" x="551" y="180" text-anchor="middle">/api/v1/models/{name}/…</text>
+  <text class="edge" x="571" y="141">one origin, model named in the path</text>
+
+  <line class="arw" x1="551" y1="122" x2="551" y2="150" marker-end="url(#a)"/>
+
+  <!-- eval role: stacked replicas -->
+  <rect class="pod" x="150" y="226" width="482" height="204" rx="8"/>
+  <text class="lbl" x="168" y="247">eval role  ·  autoscaled</text>
+
+  <rect class="stack" x="186" y="268" width="428" height="146" rx="6"/>
+  <rect class="stack" x="178" y="262" width="428" height="146" rx="6"/>
+  <rect class="r-web"  x="168" y="256" width="428" height="146" rx="6"/>
+  <text class="lbl" x="186" y="277">FastAPI process</text>
+
+  <rect class="r-model" x="186" y="288" width="196" height="100" rx="5"/>
+  <text class="lbl" x="284" y="307" text-anchor="middle">model A</text>
+  <text class="sm"  x="284" y="327" text-anchor="middle">pool of K</text>
+  <text class="sm"  x="284" y="345" text-anchor="middle">subprocesses</text>
+  <text class="sm"  x="284" y="371" text-anchor="middle">own budget</text>
+
+  <rect class="r-model" x="394" y="288" width="196" height="100" rx="5"/>
+  <text class="lbl" x="492" y="307" text-anchor="middle">model B</text>
+  <text class="sm"  x="492" y="327" text-anchor="middle">pool of K</text>
+  <text class="sm"  x="492" y="345" text-anchor="middle">subprocesses</text>
+  <text class="sm"  x="492" y="371" text-anchor="middle">own budget</text>
+
+  <text class="edge" x="389" y="424" text-anchor="middle">N replicas  ·  503 backpressure  ·  /metrics</text>
+
+  <!-- live role: singleton -->
+  <rect class="pod" x="654" y="226" width="298" height="204" rx="8"/>
+  <text class="lbl" x="672" y="247">live role  ·  singleton</text>
+  <rect class="r-web" x="672" y="256" width="262" height="146" rx="6"/>
+  <text class="lbl" x="690" y="277">FastAPI process</text>
+  <rect class="r-model" x="690" y="288" width="226" height="100" rx="5"/>
+  <text class="box" x="803" y="322" text-anchor="middle">broadcast hub</text>
+  <text class="sm"  x="803" y="345" text-anchor="middle">one evaluate loop</text>
+  <text class="sm"  x="803" y="363" text-anchor="middle">per output set</text>
+  <text class="edge" x="803" y="424" text-anchor="middle">SSE stream</text>
+
+  <line class="arw" x1="389" y1="196" x2="389" y2="224" marker-end="url(#a)"/>
+  <line class="arw" x1="803" y1="196" x2="803" y2="224" marker-end="url(#a)"/>
+
+  <!-- model source -->
+  <rect class="r-ext" x="150" y="460" width="286" height="54" rx="6"/>
+  <text class="box" x="293" y="484" text-anchor="middle">Python factory</text>
+  <text class="sm" x="293" y="503" text-anchor="middle">baked into the image</text>
+
+  <rect class="r-new" x="452" y="460" width="286" height="54" rx="6"/>
+  <text class="box" x="595" y="484" text-anchor="middle">MLflow model registry</text>
+  <text class="sm" x="595" y="503" text-anchor="middle">added by the migration</text>
+
+  <rect class="r-ext" x="754" y="460" width="198" height="54" rx="6"/>
+  <text class="box" x="853" y="484" text-anchor="middle">EPICS</text>
+  <text class="sm" x="853" y="503" text-anchor="middle">live inputs</text>
+
+  <line class="arw" x1="293" y1="458" x2="293" y2="432" marker-end="url(#a)"/>
+  <line class="arw" x1="595" y1="458" x2="595" y2="432" marker-end="url(#a)"/>
+  <line class="arw" x1="853" y1="458" x2="853" y2="432" marker-end="url(#a)"/>
+
+  <!-- footer -->
+  <line x1="150" y1="546" x2="952" y2="546" stroke="#E3E7EC" stroke-width="1"/>
+  <text class="foot" x="150" y="570">A second model is an env var. One image, one contract, one committed openapi.json.</text>
+  <text class="foot" x="150" y="592">Outputs carry a kind: scalar, array, particles or value, each with its unit.</text>
+</svg>
