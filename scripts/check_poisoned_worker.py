@@ -7,8 +7,7 @@ Drives a deployment through the reproduction and reports whether it reports the 
     python scripts/check_poisoned_worker.py                       # against dev
     LUME_API=http://localhost:8000 python scripts/check_poisoned_worker.py
 
-Exit status is 0 when the service behaves correctly, 1 when it shows the bug. That is deliberately
-inverted relative to "the test passed".
+Exit status is 0 when the service behaves correctly, 1 when it shows the bug.
 
 THIS BREAKS THE DEPLOYMENT IT RUNS AGAINST. The poisoned worker cannot be recovered in-process, so
 a pod restart is required afterwards unless the fix is in place and the probes do it for you:
