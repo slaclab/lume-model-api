@@ -469,8 +469,8 @@ async def evaluate_v1(name: str, req: EvaluateV1Request):
     except ModelUnusable as exc:
         # The model broke itself rather than rejecting the request, so this is a server fault
         # and never a 400. Kept out of the arm below deliberately: reporting it as the caller's
-        # fault is the defect in docs/POISONED_WORKER.md, and it survived because
-        # `InvalidInput` and a numpy `ValueError` are indistinguishable by type.
+        # fault was an earlier bug, and it survived because `InvalidInput` and a numpy
+        # `ValueError` are indistinguishable by type. See docs/maintainer/DESIGN_DECISIONS.md.
         #
         # A backstop in practice. The worker normally converts this to `ModelPoisoned` and the
         # pool to `PoolDead`, and what reaches here is the case where in-process recovery

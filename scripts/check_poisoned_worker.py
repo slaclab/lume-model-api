@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""Acceptance test for the poisoned-worker failure in docs/POISONED_WORKER.md.
+"""Acceptance test for a worker whose model broke itself while applying inputs.
 
-Drives a deployment through the reproduction and reports whether it behaves as the broken service
-does today or as a fixed one should. Run it before and after the fix.
+Drives a deployment through the reproduction and reports whether it reports the failure as a
+503 and fails /healthz (correct) or blames the caller with a 400 (the old behavior).
 
     python scripts/check_poisoned_worker.py                       # against dev
     LUME_API=http://localhost:8000 python scripts/check_poisoned_worker.py
 
 Exit status is 0 when the service behaves correctly, 1 when it shows the bug. That is deliberately
-inverted relative to "the test passed": today this script is expected to exit 1.
+inverted relative to "the test passed".
 
 THIS BREAKS THE DEPLOYMENT IT RUNS AGAINST. The poisoned worker cannot be recovered in-process, so
 a pod restart is required afterwards unless the fix is in place and the probes do it for you:
@@ -164,7 +164,7 @@ def main() -> int:
 
     print()
     if broken:
-        print("This deployment shows the bug in docs/POISONED_WORKER.md.")
+        print("This deployment reports a broken model as the caller's fault.")
         print("Restart it: kubectl rollout restart deploy/lume-model-api-eval -n lume-model-api")
         return 1
     print("This deployment handles the failure correctly.")

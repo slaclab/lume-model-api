@@ -473,7 +473,7 @@ def test_a_saturated_pool_is_503(client, monkeypatch) -> None:
 
 # --- a model that breaks itself --------------------------------------------------
 #
-# docs/POISONED_WORKER.md. A worker whose model stopped running used to answer 400, blaming the
+# docs/maintainer/DESIGN_DECISIONS.md, "Model failures are 503, not 400". A worker whose model stopped running used to answer 400, blaming the
 # caller for the server's own broken state, while `/healthz` reported ok so nothing restarted the
 # pod. These drive the escalation from the main process, by substituting an executor that fails
 # the way a poisoned worker does, because the demo model cannot be asked to break on demand and a

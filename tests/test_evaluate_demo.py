@@ -287,7 +287,7 @@ def test_particles_payload_raises_when_no_coordinate_reads() -> None:
 
 # --- classifying a model failure against a bad request ---------------------------
 #
-# The two halves of docs/POISONED_WORKER.md. A model that breaks itself must be a server fault,
+# See docs/maintainer/DESIGN_DECISIONS.md, "Model failures are 503, not 400". A model that breaks itself must be a server fault,
 # and a request the model would reject must stay a client fault. The second matters at least as
 # much as the first: an over-eager classifier turns every bad value into a latched worker and a
 # pod restart, which is worse than the bug being fixed here.
