@@ -4,7 +4,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: lume-model-api-eval
-  namespace: lume-model-api
+  namespace: lume-model-api-bmad
 spec:
   selector:
     app: lume-model-api-eval
@@ -17,7 +17,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: lume-model-api-live
-  namespace: lume-model-api
+  namespace: lume-model-api-bmad
 spec:
   selector:
     app: lume-model-api-live

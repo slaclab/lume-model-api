@@ -3,4 +3,4 @@ kind: Namespace
 metadata:
   # This service's own namespace, separate from the old monolith's lume-visualizations, so both
   # can run at once until the UI is cut over. See kustomization.yaml.
-  name: lume-model-api
+  name: lume-model-api-bmad

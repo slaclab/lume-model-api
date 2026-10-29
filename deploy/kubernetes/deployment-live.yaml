@@ -9,7 +9,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: lume-model-api-live
-  namespace: lume-model-api
+  namespace: lume-model-api-bmad
 spec:
   replicas: 1
   strategy:
@@ -38,7 +38,7 @@ spec:
             # model worker, so adding a model means raising requests and limits below. Each
             # model also runs its own read loop per active output set.
             - name: LUME_MODELS
-              value: '{"cu_hxr_staged": {"kwargs": {"n_particles": 1000, "end_element": "TD11"}}}'
+              value: '{"cu_hxr_staged": {"kwargs": {"n_particles": 1000, "end_element": "TD11"}}, "cu_hxr_bmad": {"kwargs": {"track_beam": true, "end_element": "TD11"}}}'
             - name: LUME_LIVE_SOURCE
               value: "epics"
             - name: LUME_ROLE
@@ -46,7 +46,7 @@ spec:
             # The ingress prefix, used only for the links Swagger and redirects generate. The
             # rewrite strips it, so every route the app serves still starts at /api.
             - name: LUME_ROOT_PATH
-              value: /lume-model-api
+              value: /lume-model-api-bmad
             - name: LCLS_LATTICE
               value: /opt/lcls-lattice
             - name: KMP_DUPLICATE_LIB_OK

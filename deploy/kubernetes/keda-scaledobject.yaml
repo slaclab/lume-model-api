@@ -16,7 +16,7 @@ apiVersion: keda.sh/v1alpha1
 kind: ScaledObject
 metadata:
   name: lume-model-api-eval
-  namespace: lume-model-api
+  namespace: lume-model-api-bmad
 spec:
   scaleTargetRef:
     name: lume-model-api-eval

@@ -5,8 +5,8 @@
 # changes no rule here, and neither does hosting another model: the model name is one path
 # segment inside the same prefix.
 #
-# The prefix is /lume-model-api, this service's own. The old monolith keeps /live-monitor from
-# its own namespace, so both are reachable on this host during the cut-over.
+# The prefix is /lume-model-api-bmad, this service's own. The old monolith keeps /live-monitor
+# from its own namespace, so both are reachable on this host during the cut-over.
 #
 # Both paths share the rewrite-target /$2, so each regex must capture the remainder
 # (after /lume-model-api/) in group 2. nginx orders regex locations by descending path
@@ -17,7 +17,7 @@ apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: lume-model-api
-  namespace: lume-model-api
+  namespace: lume-model-api-bmad
   annotations:
     nginx.ingress.kubernetes.io/rewrite-target: /$2
     nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
@@ -38,7 +38,7 @@ spec:
           # EPICS-touching endpoints, for any model name -> live producer (singleton).
           # The third group is nested inside group 2, so rewrite-target /$2 still yields the
           # whole remainder after /lume-model-api/ and the inner alternation costs no group.
-          - path: /lume-model-api(/)(api/v1/models/[^/]+/(live/.*|machine-snapshot))
+          - path: /lume-model-api-bmad(/)(api/v1/models/[^/]+/(live/.*|machine-snapshot))
             pathType: ImplementationSpecific
             backend:
               service:
@@ -46,7 +46,7 @@ spec:
                 port:
                   number: 80
           # Everything else (the model list, config, evaluate, and any UI) -> eval pool.
-          - path: /lume-model-api(/|$)(.*)
+          - path: /lume-model-api-bmad(/|$)(.*)
             pathType: ImplementationSpecific
             backend:
               service:
@@ -57,14 +57,14 @@ spec:
 # is already in the path. One Deployment pair per model, each with a one-entry LUME_MODELS,
 # then one rule per /api/v1/models/<name>/ prefix. Sketch, see docs/DEPLOY.md:
 #
-#          - path: /lume-model-api(/)(api/v1/models/cu_hxr_staged/(live/.*|machine-snapshot))
+#          - path: /lume-model-api-bmad(/)(api/v1/models/cu_hxr_staged/(live/.*|machine-snapshot))
 #            backend: { service: { name: lume-model-api-cu-hxr-live, port: { number: 80 } } }
-#          - path: /lume-model-api(/)(api/v1/models/cu_hxr_staged/.*)
+#          - path: /lume-model-api-bmad(/)(api/v1/models/cu_hxr_staged/.*)
 #            backend: { service: { name: lume-model-api-cu-hxr-eval, port: { number: 80 } } }
 #          # The list route is ANCHORED with $ so it cannot swallow the per-model prefixes
 #          # above. nginx orders regex locations by descending pattern length rather than by
 #          # manifest order, so anchoring is what makes this correct, not the position here.
-#          - path: /lume-model-api(/)(api/v1/models)$
+#          - path: /lume-model-api-bmad(/)(api/v1/models)$
 #            backend: { service: { name: lume-model-api-catalog, port: { number: 80 } } }
 #
 # Open item for that day: GET /api/v1/models then lists only the pod that answered, so the
