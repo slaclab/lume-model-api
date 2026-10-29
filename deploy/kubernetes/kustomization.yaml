@@ -8,8 +8,6 @@ resources:
   - deployment-live.yaml
   - service.yaml
   - ingress.yaml
-# NOTE: keda-scaledobject.yaml (eval-pool autoscaling) is intentionally NOT listed —
-# it needs KEDA installed + site-specific values. Apply it separately once ready.
 
 # Pin the image tag for a reproducible test. Bump newTag when you push a new image.
 # NOTE: no tag exists under the lume-model-api name yet. The image was renamed with the

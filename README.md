@@ -173,7 +173,7 @@ implicit default model, so `/api/config` and the other old paths return 404.
 | `POST /api/v1/models/{name}/evaluate` | Stateless evaluation. Same for every caller. `input_sources` says which effective inputs you sent and which the baseline filled in. |
 | `GET /api/v1/models/{name}/machine-snapshot` | The current live input values, read-only, with `sources` marking each one `live` or `baseline`. |
 | `GET /api/v1/models/{name}/live/stream?screen=` or `?outputs=a,b` | SSE `frame` events with the same body as evaluate. 503 when the hub already runs its maximum number of distinct producer loops. |
-| `GET /metrics` | Prometheus, every series labelled by `model`. KEDA autoscales the eval pool on `lume_pool_inflight`. |
+| `GET /metrics` | Prometheus, every series labelled by `model`. |
 | `GET /healthz` | What all three k8s probes target, on both Deployments. 503 until every pool has warmed, and again once any pool loses a worker. Deliberately outside the `/api/v1` contract and absent from `openapi.json`, so no client should pin it. |
 
 A client reads `GET /api/v1/models` and never hard-codes a model name. That route is pure client
@@ -247,7 +247,7 @@ elsewhere. See [`docs/DEPLOY.md`](docs/DEPLOY.md).
   name), `pool.py` (the subprocess pool, one per model), `live_hub.py` (SSE fan-out, one hub per
   model), `schemas.py`, `serialize.py` and `metrics.py`.
 - `tests/` runs the whole pipeline against the demo model, with no torch, pytao or EPICS.
-- `deploy/kubernetes/` holds the eval pool, the live singleton, service, ingress and KEDA.
+- `deploy/kubernetes/` holds the eval pool, the live singleton, service and ingress.
 - `scripts/dump_openapi.py` regenerates the committed contract.
 
 ## Docs

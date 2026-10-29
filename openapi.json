@@ -837,7 +837,7 @@
     },
     "/metrics": {
       "get": {
-        "description": "Prometheus scrape endpoint. KEDA autoscales the eval pool on lume_pool_inflight.\n\nEvery series carries a `model` label, one per hosted model, so an aggregate has to sum by\npod before averaging. See deploy/kubernetes/keda-scaledobject.yaml.",
+        "description": "Prometheus metrics for this pod.\n\nEvery series has a `model` label, one per hosted model, so sum by pod before averaging\nacross pods.",
         "operationId": "metrics_metrics_get",
         "responses": {
           "200": {

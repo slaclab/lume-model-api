@@ -8,8 +8,7 @@
 #
 # EPICS-free (LUME_ROLE=eval, no EPICS configmap) so it scales freely.
 # Baseline 2 for HA (avoids ~25-30s model-cold-start downtime on a single-pod restart).
-# When KEDA is enabled (keda-scaledobject.yaml) its minReplicaCount governs and this
-# field is only the pre-KEDA/initial value. Note: each replica requests ~5Gi.
+# Scaled by hand, see docs/DEPLOY.md. Note: each replica requests ~5Gi.
 apiVersion: apps/v1
 kind: Deployment
 metadata:

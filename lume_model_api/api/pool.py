@@ -410,8 +410,7 @@ class ModelPool:
 
         `kind` only labels metrics. Pass "live" from the SSE producer and "interactive" from
         the HTTP route so Prometheus can tell continuous stream load apart from user-driven
-        load. KEDA scales on lume_pool_inflight summed by pod, which ignores `kind`, so this
-        label is for observability only.
+        load. The label is for observability only.
         """
         return await self._submit(
             kind,

@@ -409,10 +409,10 @@ async def healthz() -> dict:
 
 @app.get("/metrics")
 def metrics() -> Response:
-    """Prometheus scrape endpoint. KEDA autoscales the eval pool on lume_pool_inflight.
+    """Prometheus metrics for this pod.
 
-    Every series carries a `model` label, one per hosted model, so an aggregate has to sum by
-    pod before averaging. See deploy/kubernetes/keda-scaledobject.yaml.
+    Every series has a `model` label, one per hosted model, so sum by pod before averaging
+    across pods.
     """
     return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
