@@ -22,6 +22,19 @@ The second command should print `linux/amd64`. A plain `docker build` on an arm6
 an image that Kubernetes rejects with "no match for platform", and that only shows up when the
 pod is scheduled.
 
+Push it to ghcr.io. Pushing needs a GitHub token with `write:packages` and write access to the
+`slaclab/lume-model-api` package. Pulling needs nothing, because the package is public, so the
+cluster has no pull secret.
+
+```bash
+echo $GITHUB_TOKEN | docker login ghcr.io -u <github-user> --password-stdin
+docker push ghcr.io/slaclab/lume-model-api:<tag>
+```
+
+Use a new tag per build (a date or a short commit hash) rather than overwriting `dev`, so a
+rollback is a tag change. Then set `newTag` in `deploy/kubernetes/kustomization.yaml` and follow
+[Apply to Kubernetes](#apply-to-kubernetes).
+
 The image contains:
 
 - miniforge, with `bmad` and `pytao` from conda-forge (and `libtao.so` patched with
@@ -92,11 +105,13 @@ and drops both subpackages.
 Nothing in CI builds the image, so every deploy starts with a manual build and push. The dev
 cluster runs the `dev` tag set in `kustomization.yaml`.
 
-1. Build and push the image, then smoke-test it (see [Verify a deployment](#verify-a-deployment)).
+1. Build and push the image (see [Build the image](#build-the-image)), then smoke-test it (see
+   [Verify a deployment](#verify-a-deployment)).
 2. Set `newTag` under `images:` in `deploy/kubernetes/kustomization.yaml`.
-3. Apply and wait for both rollouts:
+3. Apply to the dev cluster and wait for both rollouts:
 
    ```bash
+   kubectl config use-context ad-accel-online-ml-dev
    kubectl apply -k deploy/kubernetes
    kubectl -n lume-model-api rollout status deployment/lume-model-api-eval
    kubectl -n lume-model-api rollout status deployment/lume-model-api-live
@@ -175,7 +190,8 @@ takes, or a slow frame becomes a pod restart. See
 ### Changing the hosted models
 
 Changing `LUME_MODELS` is an env edit and a rollout, with no rebuild, as long as each model's
-Python dependencies are already in the image. Keep `LUME_MODELS` the same in both Deployments. A
+Python dependencies are already in the image. The full procedure is in
+[Deploy the change](ADDING_A_MODEL.md#deploy-the-change). Keep `LUME_MODELS` the same in both Deployments. A
 model served by the eval pool but not the live pod has no live stream. Adding a model also means
 raising memory and the startup budget (see [Sizing](#sizing)).
 

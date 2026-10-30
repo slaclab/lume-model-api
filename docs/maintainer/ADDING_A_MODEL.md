@@ -69,8 +69,10 @@ variable. A `LUMEModel` from any other package also needs that package installed
 
 5. **Check it.** Follow [Smoke test](#smoke-test).
 
-To make a new model available by name in deployments, add a line to `SHORTCUTS`. Nothing else in
-the package needs to know about it.
+6. **Deploy it.** Follow [Deploy the change](#deploy-the-change).
+
+To give a new model a short name, add a line to `SHORTCUTS`. Nothing else in the package needs
+to know about it, but it's a code change, so deploying it needs a new image.
 
 ```python
 SHORTCUTS: dict[str, tuple[str, dict]] = {
@@ -131,9 +133,8 @@ instance.
    the model needs data files, clone them the way the lattices are cloned and set the env var the
    model reads in the `ENV` block. Bmad, pytao and CPU torch are already in the image.
 
-6. **Deploy it.** Set `LUME_MODELS` in `deploy/kubernetes/deployment.yaml` and
-   `deployment-live.yaml`, and check pod memory against
-   [Sizing](DEPLOY.md#sizing). Optionally add a shortcut to `SHORTCUTS`.
+6. **Deploy it.** Follow [Deploy the change](#deploy-the-change). A new package always needs a
+   new image.
 
 ### A minimal model
 
@@ -216,6 +217,113 @@ To add a screen, add a read-only `ParticleGroupVariable` named `MY_SCREEN_beam`.
 screen `MY_SCREEN`. For an image on that screen, add a read-only `NDVariable` subclass with an
 `element_name` field set to `"MY_SCREEN"`, and a name ending in `:Image:ArrayData`. The demo
 model's `ElementNDVariable` shows how.
+
+## Deploy the change
+
+The manifests in `deploy/kubernetes/` deploy to the dev cluster (kubectl context
+`ad-accel-online-ml-dev`). There's no production overlay yet.
+
+### Does it need a new image?
+
+| Change | New image? |
+| --- | --- |
+| Different kwargs for a factory already in the image | No |
+| Hosting another virtual-accelerator factory that's already in the image | No |
+| A new shortcut in `SHORTCUTS` | Yes |
+| A new package, or a factory only on a newer virtual-accelerator | Yes |
+
+The image installs virtual-accelerator at the commit pinned in the `va` extra in
+`pyproject.toml`. To check whether a factory is in the running image:
+
+```bash
+kubectl --context ad-accel-online-ml-dev -n lume-model-api exec deploy/lume-model-api-eval -- \
+  python -c "import virtual_accelerator.models.cu_hxr as m; print(m.get_cu_hxr_staged_model)"
+```
+
+### 1. Edit both Deployments
+
+Set the same `LUME_MODELS` in `deploy/kubernetes/deployment.yaml` (eval) and
+`deploy/kubernetes/deployment-live.yaml` (live). A model missing from the live Deployment has no
+live stream. The value is JSON inside a YAML string, so keep the outer single quotes:
+
+```yaml
+- name: LUME_MODELS
+  value: '{"cu_hxr_staged": {"kwargs": {"n_particles": 1000, "end_element": "TD11"}},
+           "cu_hxr_otr3": {"factory": "virtual_accelerator.models.cu_hxr:get_cu_hxr_staged_model",
+                           "kwargs": {"n_particles": 1000, "end_element": "OTR3"}}}'
+```
+
+Each pod runs `LUME_POOL_WORKERS` (2) workers per model, so a second model doubles the worker
+count. Raise `resources` and the startup budget in the same edit, in both files:
+
+```yaml
+resources:
+  requests:
+    cpu: "4"        # was 2
+    memory: 9Gi     # was 5Gi
+  limits:
+    cpu: "8"
+    memory: 13Gi
+startupProbe:
+  httpGet:
+    path: /healthz
+    port: 8000
+  periodSeconds: 5
+  failureThreshold: 96   # 96 x 5 s = 8 minutes. Models warm one after another.
+```
+
+The numbers above are an example for two `cu_hxr_staged`-sized models. Work out real ones from
+[Sizing](DEPLOY.md#sizing). Models warm one at a time, so the startup budget has to cover the sum
+of every model's build time. The current budget is 48 × 5 s = 240 s.
+
+### 2. Build and push, if a new image is needed
+
+Follow [Build the image](DEPLOY.md#build-the-image), then set the tag in
+`deploy/kubernetes/kustomization.yaml`:
+
+```yaml
+images:
+  - name: ghcr.io/slaclab/lume-model-api
+    newTag: <tag>
+```
+
+Before applying, run the image check in [Verify a deployment](DEPLOY.md#verify-a-deployment) for
+each model the pods will host. It builds the model inside the image and catches a missing package
+or lattice without touching the cluster.
+
+### 3. Apply
+
+```bash
+kubectl config use-context ad-accel-online-ml-dev
+kubectl apply -k deploy/kubernetes
+kubectl -n lume-model-api rollout status deployment/lume-model-api-eval --timeout=15m
+kubectl -n lume-model-api rollout status deployment/lume-model-api-live --timeout=15m
+```
+
+An env-only change still restarts every pod, because the pod template changed. The eval pool rolls
+one pod at a time. The live pod is replaced with a gap while the new one builds its models.
+
+When `newTag` doesn't change (for example, the `dev` tag was overwritten with a new image),
+`apply` sees nothing new. Restart the pods to pull the image again, since both Deployments use
+`imagePullPolicy: Always`:
+
+```bash
+kubectl -n lume-model-api rollout restart deployment/lume-model-api-eval deployment/lume-model-api-live
+```
+
+### 4. Verify
+
+```bash
+curl -s https://ad-accel-online-ml-dev.slac.stanford.edu/lume-model-api/api/v1/models
+curl -s https://ad-accel-online-ml-dev.slac.stanford.edu/lume-model-api/api/v1/models/cu_hxr_otr3/config | head -c 300
+```
+
+The new name should be in the list, and its config should list the expected screens. If a pod
+doesn't become ready, `kubectl -n lume-model-api logs deploy/lume-model-api-eval` shows the
+factory error, or `kubectl describe pod` shows an OOM kill or a startup probe failure. To roll
+back, revert the YAML and re-apply.
+
+Update the Models table in the [README](../../README.md#models) when the deployed set changes.
 
 ## Host several models
 
