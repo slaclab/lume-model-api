@@ -15,7 +15,7 @@ resources:
 # Everything here is named lume-model-api-* in its own lume-model-api namespace, and serves
 # the /lume-model-api prefix, so applying it touches nothing the old monolith owns. The old
 # lume-monitor-* objects keep serving /live-monitor from lume-visualizations until the UI is
-# ported, and are deleted at the cut-over. See docs/DEPLOY.md.
+# ported, and are deleted at the cut-over. See docs/maintainer/DEPLOY.md.
 images:
   - name: ghcr.io/slaclab/lume-model-api
     newTag: dev

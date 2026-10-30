@@ -3,12 +3,12 @@
 #
 # Ships no UI, so "/" is a 404. The recommended way to put a UI in front of this API is a
 # separate static nginx Deployment, so a UI release does not restart the model pods and does
-# not have to track an API image tag. See docs/DEPLOY.md. Baking one into a derived image, or
+# not have to track an API image tag. See docs/maintainer/DEPLOY.md. Baking one into a derived image, or
 # mounting it with LUME_STATIC_DIR, also works but couples the two releases.
 #
 # EPICS-free (LUME_ROLE=eval, no EPICS configmap) so it scales freely.
 # Baseline 2 for HA (avoids ~25-30s model-cold-start downtime on a single-pod restart).
-# Scaled by hand, see docs/DEPLOY.md. Note: each replica requests ~5Gi.
+# Scaled by hand, see docs/maintainer/DEPLOY.md. Note: each replica requests ~5Gi.
 apiVersion: apps/v1
 kind: Deployment
 metadata:

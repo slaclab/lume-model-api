@@ -55,7 +55,7 @@ spec:
                   number: 80
 # Splitting models across pods later needs no client change, only rules here: the model name
 # is already in the path. One Deployment pair per model, each with a one-entry LUME_MODELS,
-# then one rule per /api/v1/models/<name>/ prefix. Sketch, see docs/DEPLOY.md:
+# then one rule per /api/v1/models/<name>/ prefix. Sketch, see docs/maintainer/DEPLOY.md:
 #
 #          - path: /lume-model-api(/)(api/v1/models/cu_hxr_staged/(live/.*|machine-snapshot))
 #            backend: { service: { name: lume-model-api-cu-hxr-live, port: { number: 80 } } }
