@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 660" width="1000" height="660" role="img" aria-labelledby="t d">
   <title id="t">How a UI talks to lume-model-api</title>
-  <desc id="d">A browser UI uses one base URL. It discovers models and their ids with GET config, runs what-if calculations with POST evaluate, and opens a Server-Sent Events stream for live data. The ingress sends live routes to the single live pod and everything else to the autoscaled eval pods. Only the live pod reads machine values from EPICS. It runs the model and sends each frame to every viewer of the same output set.</desc>
+  <desc id="d">A browser UI uses one base URL. It discovers models and their ids with GET config, runs what-if calculations with POST evaluate, and opens a Server-Sent Events stream for live data. The ingress sends live routes to the single live pod and everything else to the eval pods. Only the live pod reads machine values from EPICS. It runs the model and sends each frame to every viewer of the same output set.</desc>
 
   <style>
     .bg   { fill: #FFFFFF; }
@@ -87,7 +87,7 @@
   <!-- ===== backend ===== -->
   <rect class="r-model" x="590" y="112" width="210" height="184" rx="6"/>
   <text class="box" x="606" y="137">eval pods</text>
-  <text class="lbl" x="606" y="155">autoscaled, several copies</text>
+  <text class="lbl" x="606" y="155">several copies, scaled by hand</text>
   <text class="sm"  x="606" y="182">runs the model on the</text>
   <text class="sm"  x="606" y="198">inputs you send</text>
   <text class="sm"  x="606" y="224">anything you don't send</text>
