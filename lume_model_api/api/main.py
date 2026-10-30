@@ -321,18 +321,15 @@ def _resolve_outputs(info, outputs: list[str], screen: str | None) -> list[str]:
     "/api/v1/models",
     response_model=list[ModelListEntry],
     tags=["model-api"],
-    summary="List the models this process hosts",
+    summary="List hosted models",
 )
 async def list_models() -> list[dict]:
-    """Every model served here, sorted by name. Read this instead of hard-coding names.
+    """Every model hosted here, sorted by name.
 
-    `name` is the URL segment for that model's other routes, so a dropdown stores `name` and
-    interpolates it. `version` marks a demo deployment.
-
-    Client discovery, deliberately not the health check: a pod hosting several models keeps
-    listing the ones that still work even when another model's pool has died. `GET /healthz` is
-    what the k8s probes target.
+    `name` goes into the path of every other route. A model whose pool has died is still
+    listed, so this route is not a health check.
     """
+    # Kept separate from /healthz so a multi-model pod keeps listing the models that still work.
     models: dict[str, HostedModel] = getattr(app.state, "models", {})
     # `entry.info` is read straight through with no `if entry.info` guard. The lifespan warms
     # every pool and assigns `info` before it yields, so a None here would be a real bug in
@@ -351,14 +348,13 @@ async def list_models() -> list[dict]:
     "/api/v1/models/{name}/config",
     response_model=ConfigResponse,
     tags=["model-api"],
-    summary="Everything a client needs to drive one model",
+    summary="Get a model's inputs, outputs and screens",
 )
 async def get_config(name: str) -> dict:
-    """Everything a client needs to drive this model: inputs, outputs and screens.
+    """The model's inputs, outputs and screens, read from the model itself.
 
-    Derived from the model instance itself, so it is accurate for whatever `LUME_MODELS`
-    selected. `range_source` says whether an input's min/max came from the model or was
-    derived from its default, and `constant` marks an input the model pins to one value.
+    Use the ids from here in evaluate and the live stream. The response can change when the
+    deployment's model changes, so read it at startup instead of hard-coding ids.
     """
     hosted = _hosted(name)
     info = hosted.info
@@ -421,25 +417,25 @@ def metrics() -> Response:
     "/api/v1/models/{name}/evaluate",
     response_model=EvaluateV1Response,
     tags=["model-api"],
-    summary="Run one model on a set of inputs and return the requested outputs",
+    summary="Evaluate a model",
 )
 async def evaluate_v1(name: str, req: EvaluateV1Request):
-    """Stateless model evaluation. The one evaluate endpoint for every caller.
+    """Run the model and return the requested outputs.
 
-    `inputs` maps input id to control value, overlaid on the model's baseline, so send only
-    the knobs you want to change (`{}` is the design machine). The effective post-merge
-    values come back in the response's `inputs`.
+    Inputs not in the request use their design values, so each call is independent of the
+    ones before it. Request outputs by id, by `screen`, or both.
 
-    Ask for outputs by id in `outputs`, or pass `screen` to get that screen's particle
-    distribution plus its image when it has one. Both may be combined. Every requested id is
-    present in `outputs`, keyed by id, and each value declares its own `kind` and unit.
+    Arrays and particle coordinates are base64 little-endian float32. In TypeScript, decode
+    with `new Float32Array(Uint8Array.from(atob(s), c => c.charCodeAt(0)).buffer)`. Values
+    are in the model's own units, which every payload includes.
 
-    Large arrays are base64-encoded little-endian float32, so decode with e.g.
-    `numpy.frombuffer(base64.b64decode(s), dtype='<f4')` and reshape to `shape`. Particle
-    coordinates are subsampled to `max_particles` (default 3000, never the full beam).
+    Errors:
 
-    Values are in the model's own units, declared in the payload. Nothing is converted
-    server-side, so do not hard-code units.
+    - 400: no outputs requested, an unknown id, or a value the model rejects
+    - 404: unknown model
+    - 422: malformed body, including NaN or Inf values
+    - 503: pool busy (`Retry-After: 2`, retry) or dead (`Retry-After: 30`, the pod is
+      restarting)
     """
     hosted = _hosted(name)
     outputs = _resolve_outputs(hosted.info, req.outputs, req.screen)
@@ -498,14 +494,13 @@ async def evaluate_v1(name: str, req: EvaluateV1Request):
     "/api/v1/models/{name}/machine-snapshot",
     response_model=SnapshotResponse,
     tags=["model-api"],
-    summary="The live input values for one model, read-only",
+    summary="Read live input values",
 )
 async def machine_snapshot(name: str) -> dict:
-    """The live input values, read-only. Ids with no live value report their baseline.
+    """Read the model's inputs from the machine, without evaluating.
 
-    `sources` says which is which, per id: "live" for a value read off the machine on this call,
-    "baseline" for one the merge filled in from the model's design value because the PV could not
-    be read. Without it the two are the same number on the wire.
+    A PV that can't be read reports its design value and is marked `"baseline"` in `sources`.
+    Returns 503 on a deployment that doesn't serve live data.
     """
     hosted = _hosted(name)
     # `hub is None` is the single "this process does not do live" signal, shared with
@@ -520,17 +515,24 @@ async def machine_snapshot(name: str) -> dict:
     }
 
 
-@app.get("/api/v1/models/{name}/live/stream", tags=["model-api"])
+@app.get(
+    "/api/v1/models/{name}/live/stream",
+    tags=["model-api"],
+    summary="Stream live evaluations",
+)
 async def live_stream(
     name: str,
-    screen: str | None = Query(default=None),
-    outputs: str | None = Query(default=None, description="Comma-separated output ids"),
+    screen: str | None = Query(default=None, description="Screen key from the config."),
+    outputs: str | None = Query(default=None, description="Comma-separated output ids."),
 ):
-    """SSE `frame` events with the same body as this model's evaluate route.
+    """Server-sent events with the model evaluated at the machine's current inputs.
 
-    Requires `screen` or `outputs` (or both). Loops are shared by output set within a model, so
-    many viewers of the same set cost one evaluate loop. Errors arrive as an `error` event and
-    the loop keeps running.
+    Each `frame` event has the same JSON body as an evaluate response. An `error` event
+    carries `{"message": ...}`, and the stream keeps running after it. Requires `screen`,
+    `outputs`, or both.
+
+    Viewers asking for the same set of outputs share one evaluation loop. A new set beyond
+    the deployment's limit is a 503, as is a deployment that doesn't serve live data.
     """
     hosted = _hosted(name)
     if hosted.hub is None:

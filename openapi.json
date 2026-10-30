@@ -2,13 +2,16 @@
   "components": {
     "schemas": {
       "ArrayOutput": {
+        "description": "An N-dimensional array, base64-encoded. 2-D arrays are usually screen images.",
         "properties": {
           "data_b64": {
+            "description": "Base64 of little-endian float32 values, row-major.",
             "title": "Data B64",
             "type": "string"
           },
           "dtype": {
             "default": "float32",
+            "description": "Always `float32`.",
             "title": "Dtype",
             "type": "string"
           },
@@ -18,6 +21,7 @@
             "type": "string"
           },
           "shape": {
+            "description": "Array shape after any image downsampling. Reshape `data_b64` to this.",
             "items": {
               "type": "integer"
             },
@@ -26,11 +30,13 @@
           },
           "unit": {
             "default": "",
+            "description": "Unit, as declared by the model.",
             "title": "Unit",
             "type": "string"
           },
           "variable_class": {
             "default": "",
+            "description": "lume variable class. Finer than `kind`. Empty when unknown.",
             "title": "Variable Class",
             "type": "string"
           }
@@ -44,13 +50,16 @@
         "type": "object"
       },
       "ConfigResponse": {
+        "description": "Everything a model publishes: its inputs, outputs and screens.",
         "properties": {
           "description": {
             "default": "",
+            "description": "Short description from the model.",
             "title": "Description",
             "type": "string"
           },
           "inputs": {
+            "description": "Inputs that can be set.",
             "items": {
               "$ref": "#/components/schemas/InputInfo"
             },
@@ -58,10 +67,12 @@
             "type": "array"
           },
           "model": {
+            "description": "URL name of the model.",
             "title": "Model",
             "type": "string"
           },
           "outputs": {
+            "description": "Outputs that can be requested.",
             "items": {
               "$ref": "#/components/schemas/OutputInfo"
             },
@@ -69,6 +80,7 @@
             "type": "array"
           },
           "screens": {
+            "description": "Diagnostic screens.",
             "items": {
               "$ref": "#/components/schemas/ScreenInfo"
             },
@@ -76,6 +88,7 @@
             "type": "array"
           },
           "version": {
+            "description": "Model version.",
             "title": "Version",
             "type": "string"
           }
@@ -91,12 +104,14 @@
         "type": "object"
       },
       "EvaluateV1Request": {
+        "description": "Inputs to set and outputs to return. At least one of `outputs` or `screen` is required.",
         "properties": {
           "inputs": {
             "additionalProperties": {
               "type": "number"
             },
             "default": {},
+            "description": "Input id to value. Omitted inputs use their design value, so `{}` evaluates the design machine. Values must be finite.",
             "title": "Inputs",
             "type": "object"
           },
@@ -111,10 +126,12 @@
                 "type": "null"
               }
             ],
+            "description": "Maximum particles per particle output. Defaults to 3000.",
             "title": "Max Particles"
           },
           "outputs": {
             "default": [],
+            "description": "Output ids to return.",
             "items": {
               "type": "string"
             },
@@ -130,6 +147,7 @@
                 "type": "null"
               }
             ],
+            "description": "Screen key. Adds that screen's particle output and its image, when it has one, to `outputs`.",
             "title": "Screen"
           },
           "smooth_images_sigma_px": {
@@ -143,6 +161,7 @@
                 "type": "null"
               }
             ],
+            "description": "Gaussian blur width in pixels, applied to every 2-D array output. Off by default. Intensities are not renormalized.",
             "title": "Smooth Images Sigma Px"
           }
         },
@@ -150,8 +169,10 @@
         "type": "object"
       },
       "EvaluateV1Response": {
+        "description": "One model evaluation. Also the body of each live stream `frame` event.",
         "properties": {
           "frame_index": {
+            "description": "0 on the evaluate route. On the live stream, a counter that only increases, with gaps.",
             "title": "Frame Index",
             "type": "integer"
           },
@@ -160,6 +181,7 @@
               "type": "string"
             },
             "default": {},
+            "description": "Same keys as `inputs`. `\"request\"` when sent in the request, `\"baseline\"` when filled in from the design value, `\"live\"` when read from the machine (live stream only).",
             "title": "Input Sources",
             "type": "object"
           },
@@ -167,10 +189,12 @@
             "additionalProperties": {
               "type": "number"
             },
+            "description": "Every input value the model ran with, including the filled-in defaults.",
             "title": "Inputs",
             "type": "object"
           },
           "model": {
+            "description": "URL name of the model.",
             "title": "Model",
             "type": "string"
           },
@@ -200,14 +224,17 @@
                 }
               ]
             },
+            "description": "Output id to payload. Every requested id is present. Switch on `kind`.",
             "title": "Outputs",
             "type": "object"
           },
           "timestamp": {
+            "description": "Unix time in seconds when the result was serialized.",
             "title": "Timestamp",
             "type": "number"
           },
           "version": {
+            "description": "Model version.",
             "title": "Version",
             "type": "string"
           }
@@ -237,7 +264,7 @@
         "type": "object"
       },
       "InputInfo": {
-        "description": "A writable scalar knob.",
+        "description": "A writable scalar input that can be sent in an evaluate request.",
         "properties": {
           "alias_of": {
             "anyOf": [
@@ -248,35 +275,43 @@
                 "type": "null"
               }
             ],
+            "description": "Always null on an input. See `OutputInfo.alias_of`.",
             "title": "Alias Of"
           },
           "constant": {
             "default": false,
+            "description": "True when `min` equals `max`. The input is fixed and never set.",
             "title": "Constant",
             "type": "boolean"
           },
           "default": {
+            "description": "Design value. Used when a request omits this input.",
             "title": "Default",
             "type": "number"
           },
           "id": {
+            "description": "Input id, used as a key in evaluate `inputs`.",
             "title": "Id",
             "type": "string"
           },
           "max": {
+            "description": "Upper limit.",
             "title": "Max",
             "type": "number"
           },
           "min": {
+            "description": "Lower limit.",
             "title": "Min",
             "type": "number"
           },
           "range_source": {
+            "description": "`\"model\"` when the model declared the range. `\"derived\"` when the service estimated it from the default because the model declared none.",
             "title": "Range Source",
             "type": "string"
           },
           "unit": {
             "default": "",
+            "description": "Unit, as declared by the model.",
             "title": "Unit",
             "type": "string"
           }
@@ -292,18 +327,21 @@
         "type": "object"
       },
       "ModelListEntry": {
-        "description": "One model this process hosts. A UI reads this list rather than hard-coding names.",
+        "description": "One model hosted by this deployment.",
         "properties": {
           "description": {
             "default": "",
+            "description": "Short description from the model.",
             "title": "Description",
             "type": "string"
           },
           "name": {
+            "description": "URL name of the model, used as `{name}` in every other route.",
             "title": "Name",
             "type": "string"
           },
           "version": {
+            "description": "Model version. `\"demo\"` or `\"<name> (demo)\"` marks the demo model.",
             "title": "Version",
             "type": "string"
           }
@@ -316,6 +354,7 @@
         "type": "object"
       },
       "OutputInfo": {
+        "description": "A value the model can return from an evaluate.",
         "properties": {
           "alias_of": {
             "anyOf": [
@@ -326,6 +365,7 @@
                 "type": "null"
               }
             ],
+            "description": "Set when this id controls the same thing as another input, for example a magnet's `BDES` next to its `BCTRL`. Names the input to set instead. This id can still be read, but sending it in `inputs` is a 400.",
             "title": "Alias Of"
           },
           "element_name": {
@@ -337,13 +377,16 @@
                 "type": "null"
               }
             ],
+            "description": "Beamline element this output belongs to, when declared.",
             "title": "Element Name"
           },
           "id": {
+            "description": "Output id, used in evaluate `outputs`.",
             "title": "Id",
             "type": "string"
           },
           "kind": {
+            "description": "Payload shape this output returns. Matches `kind` in the evaluate response.",
             "enum": [
               "scalar",
               "array",
@@ -365,15 +408,18 @@
                 "type": "null"
               }
             ],
+            "description": "Array shape, when the model declares one.",
             "title": "Shape"
           },
           "unit": {
             "default": "",
+            "description": "Unit, as declared by the model.",
             "title": "Unit",
             "type": "string"
           },
           "variable_class": {
             "default": "",
+            "description": "lume variable class, for example `\"ScalarVariable\"` or `\"EnumVariable\"`. Finer than `kind`. Empty when unknown.",
             "title": "Variable Class",
             "type": "string"
           }
@@ -386,11 +432,13 @@
         "type": "object"
       },
       "ParticlesOutput": {
+        "description": "A particle distribution, subsampled to `max_particles`.",
         "properties": {
           "coords": {
             "additionalProperties": {
               "type": "string"
             },
+            "description": "Coordinate name to base64 little-endian float32 array of length `n`. Includes `weight` (per-particle charge).",
             "title": "Coords",
             "type": "object"
           },
@@ -400,6 +448,7 @@
             "type": "string"
           },
           "n": {
+            "description": "Number of particles in each coordinate array.",
             "title": "N",
             "type": "integer"
           },
@@ -407,6 +456,7 @@
             "additionalProperties": {
               "type": "number"
             },
+            "description": "Beam statistics, computed on the full beam before subsampling.",
             "title": "Stats",
             "type": "object"
           },
@@ -414,6 +464,7 @@
             "additionalProperties": {
               "type": "string"
             },
+            "description": "Statistic name to unit.",
             "title": "Stats Units",
             "type": "object"
           },
@@ -421,11 +472,13 @@
             "additionalProperties": {
               "type": "string"
             },
+            "description": "Coordinate name to unit, for example `{\"x\": \"m\", \"px\": \"eV/c\"}`.",
             "title": "Units",
             "type": "object"
           },
           "variable_class": {
             "default": "",
+            "description": "lume variable class. Finer than `kind`. Empty when unknown.",
             "title": "Variable Class",
             "type": "string"
           }
@@ -442,6 +495,7 @@
         "type": "object"
       },
       "ScalarOutput": {
+        "description": "A single number.",
         "properties": {
           "kind": {
             "const": "scalar",
@@ -450,15 +504,18 @@
           },
           "unit": {
             "default": "",
+            "description": "Unit, as declared by the model.",
             "title": "Unit",
             "type": "string"
           },
           "value": {
+            "description": "The value. Null when the model returned NaN or Inf.",
             "title": "Value",
             "type": "number"
           },
           "variable_class": {
             "default": "",
+            "description": "lume variable class. Finer than `kind`. Empty when unknown.",
             "title": "Variable Class",
             "type": "string"
           }
@@ -471,7 +528,7 @@
         "type": "object"
       },
       "ScreenInfo": {
-        "description": "A diagnostic location. `image` is null when the model publishes no image for it.",
+        "description": "A diagnostic location with a particle distribution and, optionally, an image.",
         "properties": {
           "image": {
             "anyOf": [
@@ -482,13 +539,16 @@
                 "type": "null"
               }
             ],
+            "description": "Output id of the screen image. Null when there is none.",
             "title": "Image"
           },
           "key": {
+            "description": "Screen name, used as evaluate `screen`.",
             "title": "Key",
             "type": "string"
           },
           "particles": {
+            "description": "Output id of the particle distribution at this screen.",
             "title": "Particles",
             "type": "string"
           }
@@ -501,11 +561,13 @@
         "type": "object"
       },
       "SnapshotResponse": {
+        "description": "Current machine values for a model's inputs.",
         "properties": {
           "inputs": {
             "additionalProperties": {
               "type": "number"
             },
+            "description": "Input id to value. Unreadable PVs fall back to the design value.",
             "title": "Inputs",
             "type": "object"
           },
@@ -514,6 +576,7 @@
               "type": "string"
             },
             "default": {},
+            "description": "Same keys as `inputs`. `\"live\"` when the value was read from the machine, `\"baseline\"` when the PV could not be read and the design value was used.",
             "title": "Sources",
             "type": "object"
           }
@@ -565,7 +628,7 @@
         "type": "object"
       },
       "ValueOutput": {
-        "description": "Anything that is not a number, an array or a beam: enums, strings, flags.",
+        "description": "Anything that isn't a number, an array or a beam, such as an enum, a string or a flag.",
         "properties": {
           "kind": {
             "const": "value",
@@ -573,10 +636,12 @@
             "type": "string"
           },
           "value": {
+            "description": "Any JSON value.",
             "title": "Value"
           },
           "variable_class": {
             "default": "",
+            "description": "lume variable class. The only way to tell an enum from a string here.",
             "title": "Variable Class",
             "type": "string"
           }
@@ -597,7 +662,7 @@
   "paths": {
     "/api/v1/models": {
       "get": {
-        "description": "Every model served here, sorted by name. Read this instead of hard-coding names.\n\n`name` is the URL segment for that model's other routes, so a dropdown stores `name` and\ninterpolates it. `version` marks a demo deployment.\n\nClient discovery, deliberately not the health check: a pod hosting several models keeps\nlisting the ones that still work even when another model's pool has died. `GET /healthz` is\nwhat the k8s probes target.",
+        "description": "Every model hosted here, sorted by name.\n\n`name` goes into the path of every other route. A model whose pool has died is still\nlisted, so this route is not a health check.",
         "operationId": "list_models_api_v1_models_get",
         "responses": {
           "200": {
@@ -615,7 +680,7 @@
             "description": "Successful Response"
           }
         },
-        "summary": "List the models this process hosts",
+        "summary": "List hosted models",
         "tags": [
           "model-api"
         ]
@@ -623,7 +688,7 @@
     },
     "/api/v1/models/{name}/config": {
       "get": {
-        "description": "Everything a client needs to drive this model: inputs, outputs and screens.\n\nDerived from the model instance itself, so it is accurate for whatever `LUME_MODELS`\nselected. `range_source` says whether an input's min/max came from the model or was\nderived from its default, and `constant` marks an input the model pins to one value.",
+        "description": "The model's inputs, outputs and screens, read from the model itself.\n\nUse the ids from here in evaluate and the live stream. The response can change when the\ndeployment's model changes, so read it at startup instead of hard-coding ids.",
         "operationId": "get_config_api_v1_models__name__config_get",
         "parameters": [
           {
@@ -658,7 +723,7 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Everything a client needs to drive one model",
+        "summary": "Get a model's inputs, outputs and screens",
         "tags": [
           "model-api"
         ]
@@ -666,7 +731,7 @@
     },
     "/api/v1/models/{name}/evaluate": {
       "post": {
-        "description": "Stateless model evaluation. The one evaluate endpoint for every caller.\n\n`inputs` maps input id to control value, overlaid on the model's baseline, so send only\nthe knobs you want to change (`{}` is the design machine). The effective post-merge\nvalues come back in the response's `inputs`.\n\nAsk for outputs by id in `outputs`, or pass `screen` to get that screen's particle\ndistribution plus its image when it has one. Both may be combined. Every requested id is\npresent in `outputs`, keyed by id, and each value declares its own `kind` and unit.\n\nLarge arrays are base64-encoded little-endian float32, so decode with e.g.\n`numpy.frombuffer(base64.b64decode(s), dtype='<f4')` and reshape to `shape`. Particle\ncoordinates are subsampled to `max_particles` (default 3000, never the full beam).\n\nValues are in the model's own units, declared in the payload. Nothing is converted\nserver-side, so do not hard-code units.",
+        "description": "Run the model and return the requested outputs.\n\nInputs not in the request use their design values, so each call is independent of the\nones before it. Request outputs by id, by `screen`, or both.\n\nArrays and particle coordinates are base64 little-endian float32. In TypeScript, decode\nwith `new Float32Array(Uint8Array.from(atob(s), c => c.charCodeAt(0)).buffer)`. Values\nare in the model's own units, which every payload includes.\n\nErrors:\n\n- 400: no outputs requested, an unknown id, or a value the model rejects\n- 404: unknown model\n- 422: malformed body, including NaN or Inf values\n- 503: pool busy (`Retry-After: 2`, retry) or dead (`Retry-After: 30`, the pod is\n  restarting)",
         "operationId": "evaluate_v1_api_v1_models__name__evaluate_post",
         "parameters": [
           {
@@ -711,7 +776,7 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Run one model on a set of inputs and return the requested outputs",
+        "summary": "Evaluate a model",
         "tags": [
           "model-api"
         ]
@@ -719,7 +784,7 @@
     },
     "/api/v1/models/{name}/live/stream": {
       "get": {
-        "description": "SSE `frame` events with the same body as this model's evaluate route.\n\nRequires `screen` or `outputs` (or both). Loops are shared by output set within a model, so\nmany viewers of the same set cost one evaluate loop. Errors arrive as an `error` event and\nthe loop keeps running.",
+        "description": "Server-sent events with the model evaluated at the machine's current inputs.\n\nEach `frame` event has the same JSON body as an evaluate response. An `error` event\ncarries `{\"message\": ...}`, and the stream keeps running after it. Requires `screen`,\n`outputs`, or both.\n\nViewers asking for the same set of outputs share one evaluation loop. A new set beyond\nthe deployment's limit is a 503, as is a deployment that doesn't serve live data.",
         "operationId": "live_stream_api_v1_models__name__live_stream_get",
         "parameters": [
           {
@@ -732,6 +797,7 @@
             }
           },
           {
+            "description": "Screen key from the config.",
             "in": "query",
             "name": "screen",
             "required": false,
@@ -744,11 +810,12 @@
                   "type": "null"
                 }
               ],
+              "description": "Screen key from the config.",
               "title": "Screen"
             }
           },
           {
-            "description": "Comma-separated output ids",
+            "description": "Comma-separated output ids.",
             "in": "query",
             "name": "outputs",
             "required": false,
@@ -761,7 +828,7 @@
                   "type": "null"
                 }
               ],
-              "description": "Comma-separated output ids",
+              "description": "Comma-separated output ids.",
               "title": "Outputs"
             }
           }
@@ -786,7 +853,7 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Live Stream",
+        "summary": "Stream live evaluations",
         "tags": [
           "model-api"
         ]
@@ -794,7 +861,7 @@
     },
     "/api/v1/models/{name}/machine-snapshot": {
       "get": {
-        "description": "The live input values, read-only. Ids with no live value report their baseline.\n\n`sources` says which is which, per id: \"live\" for a value read off the machine on this call,\n\"baseline\" for one the merge filled in from the model's design value because the PV could not\nbe read. Without it the two are the same number on the wire.",
+        "description": "Read the model's inputs from the machine, without evaluating.\n\nA PV that can't be read reports its design value and is marked `\"baseline\"` in `sources`.\nReturns 503 on a deployment that doesn't serve live data.",
         "operationId": "machine_snapshot_api_v1_models__name__machine_snapshot_get",
         "parameters": [
           {
@@ -829,7 +896,7 @@
             "description": "Validation Error"
           }
         },
-        "summary": "The live input values for one model, read-only",
+        "summary": "Read live input values",
         "tags": [
           "model-api"
         ]

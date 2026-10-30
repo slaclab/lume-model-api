@@ -30,72 +30,97 @@ ControlValue = Annotated[float, Field(allow_inf_nan=False)]
 
 
 class ModelListEntry(BaseModel):
-    """One model this process hosts. A UI reads this list rather than hard-coding names."""
+    """One model hosted by this deployment."""
 
-    # The URL segment this model answers on: /api/v1/models/{name}/config and friends.
-    name: str
-    description: str = ""
-    # "demo" or "<name> (demo)" marks a demo deployment, so a client can tell one from a real
-    # machine model even when the demo was selected by full factory path.
-    version: str
+    name: str = Field(
+        description="URL name of the model, used as `{name}` in every other route."
+    )
+    description: str = Field(default="", description="Short description from the model.")
+    # "<name> (demo)" covers a demo selected by its full factory path.
+    version: str = Field(
+        description='Model version. `"demo"` or `"<name> (demo)"` marks the demo model.'
+    )
 
 
 # --- GET /api/v1/models/{name}/config ---------------------------------------------
 
 
 class InputInfo(BaseModel):
-    """A writable scalar knob."""
+    """A writable scalar input that can be sent in an evaluate request."""
 
-    id: str
-    unit: str = ""
-    default: float
-    min: float
-    max: float
-    # "model" when the model declared a value_range, "derived" when it was inferred from
-    # the default (see model/introspect.py). A UI may want to mark a derived range as a
-    # suggestion rather than a limit.
-    range_source: str
-    # The model declares min == max, so there is nothing to drive. Excluded from the
-    # baseline and from the live input reads.
-    constant: bool = False
-    # Always null on a published input. The field exists on both InputInfo and OutputInfo so it
-    # means one thing wherever a client meets it: see OutputInfo.alias_of.
-    alias_of: str | None = None
+    id: str = Field(description="Input id, used as a key in evaluate `inputs`.")
+    unit: str = Field(default="", description="Unit, as declared by the model.")
+    default: float = Field(description="Design value. Used when a request omits this input.")
+    min: float = Field(description="Lower limit.")
+    max: float = Field(description="Upper limit.")
+    range_source: str = Field(
+        description=(
+            '`"model"` when the model declared the range. `"derived"` when the service '
+            "estimated it from the default because the model declared none."
+        )
+    )
+    constant: bool = Field(
+        default=False,
+        description="True when `min` equals `max`. The input is fixed and never set.",
+    )
+    # Present on both InputInfo and OutputInfo so the field means one thing everywhere.
+    alias_of: str | None = Field(
+        default=None, description="Always null on an input. See `OutputInfo.alias_of`."
+    )
 
 
 class OutputInfo(BaseModel):
-    id: str
-    kind: Literal["scalar", "array", "particles", "value"]
-    unit: str = ""
-    shape: list[int] | None = None
-    element_name: str | None = None  # beamline element, when the variable declares one
-    # The lume variable class this output really is, under lume's own key name, since `kind` is
-    # deliberately coarser: IntVariable and ScalarVariable share the "scalar" kind, and every
-    # class this service does not know collapses into "value". Advisory, so switch on `kind` and
-    # read this only when the finer distinction matters. Empty string when unknown.
-    variable_class: str = ""
-    # Set when the model published this id as a writable control that is a second handle on the
-    # same underlying control as another input, in which case only one of them stays settable and
-    # this names that one. Reading this id still works and returns the same value as the input it
-    # names. Sending it in `inputs` is a 400. Null for an ordinary read-only output.
-    alias_of: str | None = None
+    """A value the model can return from an evaluate."""
+
+    id: str = Field(description="Output id, used in evaluate `outputs`.")
+    kind: Literal["scalar", "array", "particles", "value"] = Field(
+        description="Payload shape this output returns. Matches `kind` in the evaluate response."
+    )
+    unit: str = Field(default="", description="Unit, as declared by the model.")
+    shape: list[int] | None = Field(
+        default=None, description="Array shape, when the model declares one."
+    )
+    element_name: str | None = Field(
+        default=None, description="Beamline element this output belongs to, when declared."
+    )
+    # lume's own class name, since `kind` is coarser: IntVariable and ScalarVariable share
+    # "scalar", and every unknown class collapses into "value".
+    variable_class: str = Field(
+        default="",
+        description=(
+            'lume variable class, for example `"ScalarVariable"` or `"EnumVariable"`. Finer '
+            "than `kind`. Empty when unknown."
+        ),
+    )
+    alias_of: str | None = Field(
+        default=None,
+        description=(
+            "Set when this id controls the same thing as another input, for example a magnet's "
+            "`BDES` next to its `BCTRL`. Names the input to set instead. This id can still be "
+            "read, but sending it in `inputs` is a 400."
+        ),
+    )
 
 
 class ScreenInfo(BaseModel):
-    """A diagnostic location. `image` is null when the model publishes no image for it."""
+    """A diagnostic location with a particle distribution and, optionally, an image."""
 
-    key: str
-    particles: str
-    image: str | None = None
+    key: str = Field(description="Screen name, used as evaluate `screen`.")
+    particles: str = Field(description="Output id of the particle distribution at this screen.")
+    image: str | None = Field(
+        default=None, description="Output id of the screen image. Null when there is none."
+    )
 
 
 class ConfigResponse(BaseModel):
-    model: str
-    version: str
-    description: str = ""
-    inputs: list[InputInfo]
-    outputs: list[OutputInfo]
-    screens: list[ScreenInfo]
+    """Everything a model publishes: its inputs, outputs and screens."""
+
+    model: str = Field(description="URL name of the model.")
+    version: str = Field(description="Model version.")
+    description: str = Field(default="", description="Short description from the model.")
+    inputs: list[InputInfo] = Field(description="Inputs that can be set.")
+    outputs: list[OutputInfo] = Field(description="Outputs that can be requested.")
+    screens: list[ScreenInfo] = Field(description="Diagnostic screens.")
 
 
 # Where one input value in a response came from. Named constants rather than bare literals
@@ -122,14 +147,19 @@ def live_sources(inputs, live) -> dict[str, str]:
 
 
 class SnapshotResponse(BaseModel):
-    inputs: dict[str, float]
-    # Which of the ids in `inputs` are really the machine. An id whose PV could not be read
-    # falls back to the model's design value, and until this field existed that fallback was
-    # indistinguishable on the wire from a value that came off the machine, so an operator had
-    # no way to tell "this is the machine" from "this is a default". Empty by default, so a
-    # client that predates it is unaffected and `inputs` keeps its `Record<string, number>`
-    # shape.
-    sources: dict[str, str] = {}
+    """Current machine values for a model's inputs."""
+
+    inputs: dict[str, float] = Field(
+        description="Input id to value. Unreadable PVs fall back to the design value."
+    )
+    # A separate map, so `inputs` keeps its `Record<string, number>` shape.
+    sources: dict[str, str] = Field(
+        default={},
+        description=(
+            'Same keys as `inputs`. `"live"` when the value was read from the machine, '
+            '`"baseline"` when the PV could not be read and the design value was used.'
+        ),
+    )
 
 
 # --- The evaluate API (POST /api/v1/models/{name}/evaluate) ----------------------
@@ -145,45 +175,62 @@ class SnapshotResponse(BaseModel):
 # finer than `kind`: a client that needs IntVariable rather than "scalar" reads it, everything
 # else switches on `kind`. Declared on each member rather than a shared base, because the
 # discriminated union below needs `kind` narrowed per member anyway.
+_VARIABLE_CLASS = "lume variable class. Finer than `kind`. Empty when unknown."
+
+
 class ScalarOutput(BaseModel):
+    """A single number."""
+
     kind: Literal["scalar"]
-    value: float
-    unit: str = ""
-    variable_class: str = ""
+    value: float = Field(description="The value. Null when the model returned NaN or Inf.")
+    unit: str = Field(default="", description="Unit, as declared by the model.")
+    variable_class: str = Field(default="", description=_VARIABLE_CLASS)
 
 
 class ArrayOutput(BaseModel):
+    """An N-dimensional array, base64-encoded. 2-D arrays are usually screen images."""
+
     kind: Literal["array"]
-    shape: list[int]
-    dtype: str = "float32"
-    data_b64: str  # base64 little-endian float32, row-major
-    unit: str = ""
-    variable_class: str = ""
+    shape: list[int] = Field(
+        description="Array shape after any image downsampling. Reshape `data_b64` to this."
+    )
+    dtype: str = Field(default="float32", description="Always `float32`.")
+    data_b64: str = Field(description="Base64 of little-endian float32 values, row-major.")
+    unit: str = Field(default="", description="Unit, as declared by the model.")
+    variable_class: str = Field(default="", description=_VARIABLE_CLASS)
 
 
 class ParticlesOutput(BaseModel):
+    """A particle distribution, subsampled to `max_particles`."""
+
     kind: Literal["particles"]
-    n: int  # particles per coordinate, after subsampling to max_particles
-    units: dict[str, str]  # coord name -> unit, e.g. {"x": "m", "px": "eV/c"}
-    coords: dict[str, str]  # coord name -> base64 little-endian float32
-    # Computed on the full beam, before subsampling, so a small max_particles thins the
-    # scatter plot without changing the numbers beside it.
-    stats: dict[str, float]
-    stats_units: dict[str, str]
-    variable_class: str = ""
+    n: int = Field(description="Number of particles in each coordinate array.")
+    units: dict[str, str] = Field(
+        description='Coordinate name to unit, for example `{"x": "m", "px": "eV/c"}`.'
+    )
+    coords: dict[str, str] = Field(
+        description=(
+            "Coordinate name to base64 little-endian float32 array of length `n`. Includes "
+            "`weight` (per-particle charge)."
+        )
+    )
+    stats: dict[str, float] = Field(
+        description="Beam statistics, computed on the full beam before subsampling."
+    )
+    stats_units: dict[str, str] = Field(description="Statistic name to unit.")
+    variable_class: str = Field(default="", description=_VARIABLE_CLASS)
 
 
 class ValueOutput(BaseModel):
-    """Anything that is not a number, an array or a beam: enums, strings, flags."""
+    """Anything that isn't a number, an array or a beam, such as an enum, a string or a flag."""
 
     kind: Literal["value"]
-    # Deliberately untyped: this is the catch-all for variable classes the service does not
-    # know, so it cannot promise more than "JSON-serializable".
-    value: Any = None
-    # The one kind where this really earns its place: "value" says only "not a number, array or
-    # beam", so the lume class name is all a client has to tell an EnumVariable from a
-    # StrVariable.
-    variable_class: str = ""
+    # Untyped: this is the catch-all for variable classes the service does not know.
+    value: Any = Field(default=None, description="Any JSON value.")
+    variable_class: str = Field(
+        default="",
+        description="lume variable class. The only way to tell an enum from a string here.",
+    )
 
 
 Output = Annotated[
@@ -212,39 +259,66 @@ MAX_SMOOTH_SIGMA_PX = 50.0
 
 
 class EvaluateV1Request(BaseModel):
-    # id -> control value, overlaid on the model's baseline, so send only the knobs you
-    # want to change ({} is the design machine). Only writable ScalarVariables become
-    # inputs (see model/introspect.py), so a value is always a number.
-    inputs: dict[str, ControlValue] = {}
-    # Output ids to return. Every id asked for is present in the response.
-    outputs: list[str] = []
-    # Convenience: appends this screen's particles id and, when it has one, its image id.
-    screen: str | None = None
-    # Defaults to 3000, never the full beam. `ge=1` because a zero or negative cap is not a
-    # request for anything, and `model/evaluate.py` silently substitutes the default for it,
-    # which hides the caller's mistake rather than reporting it.
-    max_particles: Annotated[int, Field(ge=1, le=MAX_PARTICLES_LIMIT)] | None = None
-    # Opt-in Gaussian blur, in pixels, applied to 2-D array outputs. A screen image built
-    # from ~1000 macroparticles is single-count noise at pixel resolution, and convolving
-    # with the detector PSF is what makes it look like a camera frame. Off by default,
-    # because blurring every 2-D array is wrong for a generic host.
+    """Inputs to set and outputs to return. At least one of `outputs` or `screen` is required."""
+
+    inputs: dict[str, ControlValue] = Field(
+        default={},
+        description=(
+            "Input id to value. Omitted inputs use their design value, so `{}` evaluates the "
+            "design machine. Values must be finite."
+        ),
+    )
+    outputs: list[str] = Field(default=[], description="Output ids to return.")
+    screen: str | None = Field(
+        default=None,
+        description=(
+            "Screen key. Adds that screen's particle output and its image, when it has one, "
+            "to `outputs`."
+        ),
+    )
+    # `ge=1`: `model/evaluate.py` silently substitutes the default for a zero or negative cap,
+    # which would hide the caller's mistake.
+    max_particles: Annotated[int, Field(ge=1, le=MAX_PARTICLES_LIMIT)] | None = Field(
+        default=None, description="Maximum particles per particle output. Defaults to 3000."
+    )
+    # A screen image built from ~1000 macroparticles is single-count noise at pixel resolution.
+    # Off by default, because blurring every 2-D array is wrong for a generic host.
     smooth_images_sigma_px: (
         Annotated[float, Field(ge=0.0, le=MAX_SMOOTH_SIGMA_PX, allow_inf_nan=False)] | None
-    ) = None
+    ) = Field(
+        default=None,
+        description=(
+            "Gaussian blur width in pixels, applied to every 2-D array output. Off by default. "
+            "Intensities are not renormalized."
+        ),
+    )
 
 
 class EvaluateV1Response(BaseModel):
-    model: str
-    version: str
-    timestamp: float
-    frame_index: int
-    inputs: dict[str, float]  # effective, post-baseline-merge
-    outputs: dict[str, Output]
-    # id -> one of SOURCE_LIVE / SOURCE_REQUEST / SOURCE_BASELINE, for the same ids as `inputs`.
-    # The merge fills every knob the caller did not send, and on the live stream it also fills
-    # every id whose PV could not be read, so without this a design value is indistinguishable
-    # from the machine. Kept as a parallel map rather than as richer values inside `inputs`, so
-    # a client typed `Record<string, number>` there is untouched. Empty by default, and populated
-    # by the sender rather than the serializer, because only the sender knows the provenance:
-    # see SENDER_ADDED in tests/test_wire_shape.py.
-    input_sources: dict[str, str] = {}
+    """One model evaluation. Also the body of each live stream `frame` event."""
+
+    model: str = Field(description="URL name of the model.")
+    version: str = Field(description="Model version.")
+    timestamp: float = Field(description="Unix time in seconds when the result was serialized.")
+    frame_index: int = Field(
+        description=(
+            "0 on the evaluate route. On the live stream, a counter that only increases, with "
+            "gaps."
+        )
+    )
+    inputs: dict[str, float] = Field(
+        description="Every input value the model ran with, including the filled-in defaults."
+    )
+    outputs: dict[str, Output] = Field(
+        description="Output id to payload. Every requested id is present. Switch on `kind`."
+    )
+    # Populated by the sender rather than the serializer, because only the sender knows the
+    # provenance. See SENDER_ADDED in tests/test_wire_shape.py.
+    input_sources: dict[str, str] = Field(
+        default={},
+        description=(
+            'Same keys as `inputs`. `"request"` when sent in the request, `"baseline"` when '
+            'filled in from the design value, `"live"` when read from the machine (live stream '
+            "only)."
+        ),
+    )
