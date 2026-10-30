@@ -1,7 +1,7 @@
 # Publishes the API's ReDoc page to GitHub Pages from the committed openapi.json.
 #
-# openapi.json is the single source of truth for the wire contract (see docs/API.md,
-# "Changing the contract"). FastAPI already serves Swagger UI at /docs and ReDoc at
+# openapi.json is the single source of truth for the wire contract (see
+# docs/maintainer/CHANGING_THE_API.md). FastAPI already serves Swagger UI at /docs and ReDoc at
 # /redoc on a running pod, which is enough for dev. The Pages site is the canonical
 # browser-friendly reference for consumers who do not have the service running: it
 # always matches the schema at the tip of main, because it is built straight from the

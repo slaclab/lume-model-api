@@ -47,15 +47,23 @@ for `cu_hxr_staged` was measured on the dev cluster: disable lattice calculation
 baseline control back, restore `track_type`, re-enable calculation, then refresh state. Turning
 calculation off first lets Tao accept the intermediate writes without evaluating an unstable
 orbit. Three of those five steps are Bmad commands, so the sequence belongs in lume-bmad or
-virtual-accelerator as a `recover()` method, not here. <!-- VERIFY-VA -->
+virtual-accelerator as a `recover()` method, not here.
+
+On lume-bmad `main` this failure may no longer happen. A bend set that Tao rejects now raises
+`TaoCommandError` and the model restores its previous state, so the instance stays healthy. The
+service still treats that error as `ModelUnusable` and restarts the pod, which is now more
+cautious than it needs to be. Revisit this when the pin moves.
 
 ## No model.reset() on Bmad models
 
-`model.reset()` looks like the obvious recovery, and it's destructive even on a healthy Bmad model.
-`LUMEBmadModel.__init__` snapshots `_initial_state` before `track_type` is set to `"beam"`, so
-`reset()` writes back `"single"` and unregisters 24 outputs, including every screen. After that,
-every evaluate fails. This service never calls it, and `pool._attempt_recovery` only calls a
-model's own `recover()`. <!-- VERIFY-VA -->
+`model.reset()` looks like the obvious recovery, and on the lume-bmad commit pinned in
+`pyproject.toml` it's destructive even on a healthy model. `LUMEBmadModel.__init__` snapshots
+`_initial_state` before `track_type` is set to `"beam"`, so `reset()` writes back `"single"` and
+unregisters 24 outputs, including every screen. After that, every evaluate fails.
+
+lume-bmad `main` (commit `0a9fdca`) keeps `track_type` on reset, and there `reset()` leaves every
+variable in place. Until the pin moves past that commit, this service must not call it.
+`pool._attempt_recovery` only calls a model's own `recover()`.
 
 ## One input per control
 
@@ -64,7 +72,8 @@ on the same underlying control, both get written and whichever is applied last w
 virtual-accelerator publishes both `BCTRL` and `BDES` for every magnet, mapped to the same
 variable. Setting only `BCTRL` was a silent no-op: the response echoed the requested value with
 `source: "request"` while the magnet stayed at its default, and a full-range quad scan came back
-flat. <!-- VERIFY-VA -->
+flat. This still holds on virtual-accelerator `main`, where every quad, bend and corrector
+publishes both, and `cu_hxr_staged` has 50 such pairs.
 
 `introspect._resolve_aliases` keeps one input per control and publishes the others as read-only
 outputs with `alias_of` set. Two inputs count as aliases when they share the id prefix before the
@@ -157,7 +166,8 @@ validate defaults unless the model sets `validate_default`, which `lume.variable
 A model that mixes in `ReadOnlyActionMixin` without setting the flag gets its variable silently
 dropped here. That's how every `<ele>_beam` on `cu_hxr_staged` disappeared, leaving `screens: []`.
 Nothing in this service checks for it. The lume-bmad pin in `pyproject.toml` and the build-time
-assertion in the Dockerfile are what prevent it. <!-- VERIFY-VA -->
+assertion in the Dockerfile are what prevent it. lume-bmad `0.1.1` and later set the flag, but
+any other model can still hit the same trap.
 
 ## Live producer is a singleton
 

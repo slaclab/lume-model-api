@@ -104,7 +104,7 @@ class LiveHub:
         self._max_streams = pool.max_inflight if max_streams is None else max_streams
         # One counter for the whole hub rather than one per stream. A per-stream counter restarted
         # at 0 whenever the last viewer of that set left and a new one arrived, so a client that
-        # reconnected saw `frame_index` go backwards, and docs/API.md promises it only increases.
+        # reconnected saw `frame_index` go backwards, and docs/frontend/CONCEPTS.md promises it only increases.
         # Per hub it is monotonic for every stream, with gaps where a sibling stream produced.
         self._frame_index = 0
         metrics.LIVE_STREAMS.labels(model=model).set(0)

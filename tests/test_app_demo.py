@@ -599,7 +599,7 @@ def test_a_recovered_model_is_503_without_killing_the_pool(client, monkeypatch) 
     """`ModelUnusable` reaching the route means the worker recovered, so the pod keeps serving.
 
     Inert today, because recovery needs the model to define `recover()` and nothing does (see
-    docs/ARCHITECTURE.md). Pinned anyway, because the arm exists so that a model which grows one
+    docs/maintainer/ARCHITECTURE.md). Pinned anyway, because the arm exists so that a model which grows one
     does not cost a pod restart per poisoning: without it this would be a 500.
     """
     from lume_model_api.model.evaluate import ModelUnusable

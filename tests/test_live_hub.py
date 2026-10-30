@@ -522,7 +522,7 @@ def test_the_stream_gauge_follows_the_live_loop_count() -> None:
 
 
 def test_frame_index_does_not_restart_when_the_last_viewer_leaves() -> None:
-    """docs/API.md promises a counter that only increases, and a UI may key on it.
+    """docs/frontend/CONCEPTS.md promises a counter that only increases, and a UI may key on it.
 
     Per stream it restarted at 0 every time a stream's last viewer left and a new one arrived,
     so an ordinary browser reload made frame_index go backwards.

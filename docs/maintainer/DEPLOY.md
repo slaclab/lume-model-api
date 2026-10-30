@@ -39,22 +39,23 @@ get the same stack.
 
 virtual-accelerator declares bare `lume-base`, `lume-bmad`, `lume-torch` and `lume-cheetah`
 requirements, so the `va` extra pins each one. Without the pins, a rebuild installs whatever
-PyPI has that day. lume-bmad is pinned to a git commit because the PyPI release `v0.1.0` builds
-every `<ele>_beam` variable without `read_only=True`. The service then drops the beams as
-writable non-scalars and publishes `screens: []`. The fix is lume-bmad commit `110230c9`, which
-no tagged release contains. See
-[DESIGN_DECISIONS.md](DESIGN_DECISIONS.md#read-only-beam-variables-need-a-pinned-lume-bmad).
-<!-- VERIFY-VA -->
+PyPI has that day. lume-bmad `0.1.0` builds every `<ele>_beam` variable without
+`read_only=True`, so the service drops the beams as writable non-scalars and publishes
+`screens: []`. The fix landed in lume-bmad `0.1.1` (on PyPI since 2026-09-24). The `va` extra
+still pins lume-bmad to an older git commit that has the fix, and can move to `lume-bmad==0.1.1`
+with the next pin update. See
+[DESIGN_DECISIONS.md](DESIGN_DECISIONS.md#output_beam-and-writable-non-scalars-are-not-published).
 
 After installing the pins, the Dockerfile checks the source of
 `LUMEBmadModel._refresh_dynamic_action_variables` for `read_only=True` and fails the build if
 it's missing. It then prints the resolved lume and virtual-accelerator versions. A pod built
 without the fix would start healthy and serve every scalar and image, and the only symptom
-would be an empty `screens` list. <!-- VERIFY-VA -->
+would be an empty `screens` list.
 
 `conda install bmad pytao` isn't pinned, so a fresh solve can pull a Bmad that rejects a
-model's `tao.init`. If that happens, pin the versions from the last build that worked.
-<!-- VERIFY-VA -->
+model's `tao.init`. If that happens, pin the versions from the last build that worked. The last
+known-good pair is bmad `20261023.0` with pytao `1.3.3` (checked 2026-10-29 against
+virtual-accelerator and lume-bmad `main`).
 
 ### Packaging checks
 
@@ -188,7 +189,7 @@ the sum of `workers` over its models, and each worker holds a full model instanc
 | Memory per `cu_hxr_staged` worker | budgeted at about 2 GB |
 | Pod model memory | about 2 GB times the total workers across the pod's models |
 | CPU | about 2 cores per worker |
-| Model build time | 25 to 30 seconds per model |
+| Model build time | 25 to 30 seconds for `cu_hxr_staged`. `facet_staged` at its default 10000 particles took about 4.5 minutes on a laptop, which is longer than the startup probe allows. |
 | Current requests and limits (both Deployments) | `cpu: 2`, `memory: 5Gi` requested, `cpu: 4`, `memory: 7Gi` limit |
 
 Startup takes the sum of the models' build times, because pools are warmed one model at a time
@@ -247,7 +248,7 @@ kubectl -n lume-model-api scale deployment/lume-model-api-eval --replicas=2
 
 The live Deployment stays at `replicas: 1`. Each replica would read EPICS and evaluate on its
 own, doubling the model work and showing different viewers different frames. See
-[DESIGN_DECISIONS.md](DESIGN_DECISIONS.md#the-live-producer-is-a-singleton).
+[DESIGN_DECISIONS.md](DESIGN_DECISIONS.md#live-producer-is-a-singleton).
 
 ### What to watch
 

@@ -58,8 +58,10 @@ variable. A `LUMEModel` from any other package also needs that package installed
      uvicorn lume_model_api.api.main:app --port 8000
    ```
 
-   A real model takes 25 to 30 seconds per worker to build. The log prints one line per hosted
-   model once it has resolved `LUME_MODELS`:
+   `cu_hxr_staged` takes 25 to 30 seconds per worker to build. `facet_staged` at its default
+   10000 particles takes several minutes, so lower `n_particles` or raise the startup probe
+   budget before deploying it. The log prints one line per hosted model once it has resolved
+   `LUME_MODELS`:
 
    ```
    hosting cu_hxr_staged -> virtual_accelerator.models.cu_hxr:get_cu_hxr_staged_model workers=4 at /api/v1/models/cu_hxr_staged
@@ -324,7 +326,9 @@ the last `:` in their id, the same unit and the same default. The input kept is 
 by id. Each group is logged at WARNING. Ids with no `:` are never grouped.
 
 This has only been tried on Bmad models through virtual-accelerator. A backend with a different
-naming scheme may need a different rule. See `REVISIT_ALIASES` in `introspect.py`.
+naming scheme may need a different rule. See `REVISIT_ALIASES` in `introspect.py`. One known gap:
+the FACET-II models publish a quad with an empty device name (`:BCTRL` and `:BDES`), which has no
+prefix, so both stay inputs.
 
 ### Screens
 
