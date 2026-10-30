@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 620" width="980" height="620" role="img" aria-labelledby="t d">
   <title id="t">lume-model-api architecture: many models per pod, addressed by name</title>
-  <desc id="d">Consumers reach one origin and name the model in the path. The same image runs in two roles. The eval role autoscales to N replicas and serves config and evaluate. The live role is a singleton that reads EPICS and serves the SSE stream. Inside a process each hosted model owns its own pool of K model subprocesses. Models are built by a Python factory baked into the image, and after the migration also from the MLflow registry.</desc>
+  <desc id="d">Consumers reach one origin and name the model in the path. The same image runs in two roles. The eval role runs N replicas, scaled by hand, and serves config and evaluate. The live role is a singleton that reads EPICS and serves the SSE stream. Inside a process each hosted model owns its own pool of K model subprocesses. Models are built by a Python factory baked into the image, and after the migration also from the MLflow registry.</desc>
 
   <style>
     .bg   { fill: #FFFFFF; }
@@ -53,7 +53,7 @@
 
   <!-- eval role: stacked replicas -->
   <rect class="pod" x="150" y="226" width="482" height="204" rx="8"/>
-  <text class="lbl" x="168" y="247">eval role  ·  autoscaled</text>
+  <text class="lbl" x="168" y="247">eval role  ·  N replicas</text>
 
   <rect class="stack" x="186" y="268" width="428" height="146" rx="6"/>
   <rect class="stack" x="178" y="262" width="428" height="146" rx="6"/>

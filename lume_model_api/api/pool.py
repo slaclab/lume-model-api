@@ -47,8 +47,8 @@ _INFO = None
 _UNUSABLE: str | None = None
 
 # `outcome` label values on `lume_pool_recovery_total`. A model that defines no `recover()` is
-# "unavailable", which is every model today: see the recovery section of
-# docs/ARCHITECTURE.md.
+# "unavailable", which is every model today. See docs/maintainer/DESIGN_DECISIONS.md,
+# "Recovery belongs in the model".
 RECOVERY_UNAVAILABLE = "unavailable"
 RECOVERY_OK = "recovered"
 RECOVERY_FAILED = "failed"
@@ -88,7 +88,7 @@ class ModelPoisoned(RuntimeError):
 
     `_submit` converts this to `PoolDead`, which is why the escalation needs nothing new: a
     poisoned worker reaches the same 503 on evaluate, the same unhealthy `/healthz` and the
-    same pod restart as a lost one. See docs/ARCHITECTURE.md, "When a worker dies".
+    same pod restart as a lost one. See docs/maintainer/ARCHITECTURE.md, "When a worker dies".
     """
 
 
@@ -147,7 +147,7 @@ def _attempt_recovery(model) -> str:
     "unavailable" for every model this package currently hosts and the caller latches
     immediately. That is the whole protocol on purpose: the one measured cure is a sequence of
     Bmad commands, and a model-agnostic host has no business knowing them. See
-    docs/ARCHITECTURE.md for the sequence and where it belongs.
+    docs/maintainer/DESIGN_DECISIONS.md ("Recovery belongs in the model") for the sequence.
 
     `model.reset()` is emphatically not this, and must never be called on a Bmad model: it
     writes back a `_initial_state` snapshotted before `track_type` was set, which unregisters
