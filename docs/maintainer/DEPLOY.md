@@ -89,8 +89,8 @@ and drops both subpackages.
 
 ## Apply to Kubernetes
 
-No image has been pushed under `ghcr.io/slaclab/lume-model-api` yet, and nothing in CI builds
-one, so the first deploy starts with a build and push.
+Nothing in CI builds the image, so every deploy starts with a manual build and push. The dev
+cluster runs the `dev` tag set in `kustomization.yaml`.
 
 1. Build and push the image, then smoke-test it (see [Verify a deployment](#verify-a-deployment)).
 2. Set `newTag` under `images:` in `deploy/kubernetes/kustomization.yaml`.

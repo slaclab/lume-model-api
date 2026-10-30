@@ -28,14 +28,15 @@ LUME_MODELS=demo LUME_LIVE_SOURCE=synthetic uvicorn lume_model_api.api.main:app 
 `LUME_LIVE_SOURCE=synthetic` makes the live stream wiggle the inputs around their defaults, so
 the stream works without EPICS.
 
-The SLAC deployments, once the service is deployed, are:
+The SLAC deployments are:
 
 | Environment | Base URL |
 | --- | --- |
-| Production | `https://ard-modeling-service.slac.stanford.edu/lume-model-api` |
+| Production (not deployed yet) | `https://ard-modeling-service.slac.stanford.edu/lume-model-api` |
 | Development | `https://ad-accel-online-ml-dev.slac.stanford.edu/lume-model-api` |
 
-Both are reachable from the SLAC network only. Nothing is deployed yet.
+Both are reachable from the SLAC network only. The README's
+[Deployments](../../README.md#deployments) table has the current status.
 
 The `/lume-model-api` prefix belongs in the base URL. The ingress strips it before the request
 reaches the app, so the paths in `openapi.json` start at `/api` and don't include it.

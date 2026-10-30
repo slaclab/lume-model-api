@@ -45,14 +45,58 @@ To run a virtual-accelerator model such as `cu_hxr_staged` locally, see
 
 ## Deployments
 
-| Environment | Cluster | Base URL |
-| --- | --- | --- |
-| Production | `ad-accel-online-ml` | `https://ard-modeling-service.slac.stanford.edu/lume-model-api` |
-| Development | `ad-accel-online-ml-dev` (vcluster) | `https://ad-accel-online-ml-dev.slac.stanford.edu/lume-model-api` |
+| Environment | Cluster | Base URL | Status (2026-10-29) |
+| --- | --- | --- | --- |
+| Production | `ad-accel-online-ml` | `https://ard-modeling-service.slac.stanford.edu/lume-model-api` | Not deployed. The old lume-visualizations monolith still serves `/live-monitor` on this host. |
+| Development | `ad-accel-online-ml-dev` (vcluster) | `https://ad-accel-online-ml-dev.slac.stanford.edu/lume-model-api` | Running, image tag `dev`, hosting `cu_hxr_staged` |
 
-Clients append `/api/v1/models/...` to the base URL. Both are reachable from the SLAC network only.
-Nothing from this repo is deployed yet. The manifests in `deploy/kubernetes/` target the dev
-host. See [URLs](docs/maintainer/DEPLOY.md#urls) for routing, TLS and the allowlist.
+Clients append `/api/v1/models/...` to the base URL. Both hosts are reachable from the SLAC
+network only. The manifests in `deploy/kubernetes/` target the dev host. See
+[URLs](docs/maintainer/DEPLOY.md#urls) for routing, TLS and the allowlist.
+
+## Models
+
+These shortcut names can be used in `LUME_MODELS`. Any other `LUMEModel` factory works by its
+full `module:function` path.
+
+| Shortcut | Model | On dev | On prod |
+| --- | --- | --- | --- |
+| `demo` | Small built-in model for local runs and tests | No | No |
+| `cu_hxr_staged` | LCLS Cu linac to the HXR line, injector surrogate plus Bmad, tracked to `TD11` | Yes | No |
+| `cu_hxr_bmad` | LCLS Cu linac, Bmad only, from `OTR2` to `TD11` | No | No |
+| `facet_staged` | FACET-II from `PR10241`, injector surrogate plus Bmad | No | No |
+| `facet_bmad` | FACET-II, Bmad only | No | No |
+
+The deployed set comes from `LUME_MODELS` in `deploy/kubernetes/deployment.yaml` and
+`deployment-live.yaml`, and `GET /api/v1/models` on a running deployment is the authoritative
+list. Factories and default kwargs are in
+[Adding a model](docs/maintainer/ADDING_A_MODEL.md#host-a-virtual-accelerator-model).
+
+## Endpoints
+
+| Method and path | Purpose |
+| --- | --- |
+| `GET /api/v1/models` | The hosted models. |
+| `GET /api/v1/models/{name}/config` | A model's inputs (with ranges, units and defaults), outputs and screens. |
+| `POST /api/v1/models/{name}/evaluate` | Run the model with the given inputs and return the requested outputs. |
+| `GET /api/v1/models/{name}/machine-snapshot` | Current machine values for the model's inputs. Live role only. |
+| `GET /api/v1/models/{name}/live/stream` | Server-sent events, one evaluated frame at a time, at the machine's current inputs. Live role only. |
+| `GET /metrics` | Prometheus metrics, labelled by model. |
+| `GET /healthz` | Probe target for Kubernetes. Not part of the API contract and not in `openapi.json`. |
+
+Every model route includes the model name. There is no default model, so the pre-split paths
+like `/api/config` return 404. Field-level detail is in the
+[API reference](https://slaclab.github.io/lume-model-api/).
+
+## The contract
+
+`openapi.json` at the repo root is the API contract. Clients generate their types from it at a
+pinned git ref (see [TypeScript client](docs/frontend/TYPESCRIPT_CLIENT.md)). CI regenerates it
+on every pull request and fails if the committed copy is stale.
+
+Changes to `/api/v1` are additive only. A new optional field is fine. Renaming or removing a
+field, making an optional field required, or moving a path needs `/api/v2`. See
+[Changing the API](docs/maintainer/CHANGING_THE_API.md).
 
 ## Docs
 

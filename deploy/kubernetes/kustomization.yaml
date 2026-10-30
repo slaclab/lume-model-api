@@ -10,8 +10,8 @@ resources:
   - ingress.yaml
 
 # Pin the image tag for a reproducible test. Bump newTag when you push a new image.
-# NOTE: no tag exists under the lume-model-api name yet. The image was renamed with the
-# repo split, and nothing in CI builds it, so build and push one before applying this.
+# Nothing in CI builds the image, so build and push one before changing this. The dev
+# cluster runs the `dev` tag.
 # Everything here is named lume-model-api-* in its own lume-model-api namespace, and serves
 # the /lume-model-api prefix, so applying it touches nothing the old monolith owns. The old
 # lume-monitor-* objects keep serving /live-monitor from lume-visualizations until the UI is

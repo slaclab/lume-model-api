@@ -15,8 +15,9 @@ UI that first used this API.
   `lume_model_api/api/` and `lume_visualizations/` became `lume_model_api/model/`.
 - History was kept but paths changed. Use `git log --follow`. Commits before `a923530` use the
   old paths.
-- Nothing has been deployed yet, and no image exists under `ghcr.io/slaclab/lume-model-api`, so
-  `deploy/kubernetes` points at a tag that doesn't resolve.
+- The service runs on the dev cluster only (`ad-accel-online-ml-dev`, image tag `dev`).
+  Production hasn't been deployed. See the [Deployments](README.md#deployments) table in the
+  README.
 
 ## Do not undo these
 
