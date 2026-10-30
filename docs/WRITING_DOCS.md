@@ -23,7 +23,9 @@ Most of these rules are about structure and word choice.
   around it.
 - One topic per section. If a section answers two questions, split it.
 - Separate reference from walkthroughs. Reference is tables and short definitions, ordered for
-  lookup. Walkthroughs are numbered steps, ordered for doing, and end with a check that it worked.
+  lookup. Walkthroughs are numbered steps, ordered for doing. A walkthrough ends where the
+  reader's task actually ends (for a service, usually deployed and verified, not running
+  locally), and any step that changes something says how to confirm it worked.
 - Order sections by how often a reader needs them, not by how the code is organized.
 - Use tables only for facts that enumerate (fields, status codes, env vars). Use bullets for
   short parallel items. Everything else is paragraphs.
@@ -31,6 +33,11 @@ Most of these rules are about structure and word choice.
 - Headings name the thing: `input_sources`, `Baseline merge`, `Errors`. No questions, no task
   phrasing ("Where each value came from"), no headings that are full sentences.
 - Each fact lives in one doc. Elsewhere, link to it.
+- The README is the landing page, not just a table of contents. It keeps what a new reader needs
+  to get oriented: what the project is, where it runs and what's deployed there, the main entry
+  points (endpoints, commands, model or package names), and rules every user has to follow (such
+  as an API compatibility policy). Detail moves to other docs, and the README keeps a one-line
+  summary with a link to each.
 - If a generated reference exists (OpenAPI, ReDoc, typedoc), don't restate it field by field.
   Write what the schema can't say and link to the generated page.
 
@@ -72,10 +79,15 @@ These are what make docs sound machine-written:
 
 ### Accuracy
 
-- Check every claim against the code before writing it. When the doc and the code disagree,
+- Check every claim against its source before writing it: the code, the config, or the running
+  system. When the doc and the code disagree,
   the code wins. Record the disagreement for the maintainer, and don't silently change code to
   match a doc.
 - Mark anything that couldn't be verified.
+- Never copy a claim about current state (what's deployed where, running versions, hostnames,
+  which features are live) from an older doc. Check the live system, write the claim with a date
+  ("as of 2026-10-29"), and name the command or URL that gives the authoritative answer, because
+  the claim will go stale.
 - Refer to code by file path plus function or symbol name, never by line number.
 - When renaming a doc or a heading, search the repo for references to it (code comments, tests,
   CI, other docs) and update them in the same change.
