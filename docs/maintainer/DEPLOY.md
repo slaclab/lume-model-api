@@ -374,11 +374,14 @@ without changes.
 
 ## URLs
 
-The ingress serves one host, set in `ingress.yaml`. The model list is at:
+| Environment | Cluster | Model list |
+| --- | --- | --- |
+| Production | `ad-accel-online-ml` | `https://ard-modeling-service.slac.stanford.edu/lume-model-api/api/v1/models` |
+| Development | `ad-accel-online-ml-dev` (vcluster) | `https://ad-accel-online-ml-dev.slac.stanford.edu/lume-model-api/api/v1/models` |
 
-```
-https://ad-accel-online-ml-dev.slac.stanford.edu/lume-model-api/api/v1/models
-```
+`ingress.yaml` sets the dev host only, and there is no production overlay yet, so applying
+`deploy/kubernetes/` deploys to dev. A production deploy needs the host changed to
+`ard-modeling-service.slac.stanford.edu`.
 
 Clients use everything through `/lume-model-api` as their base URL. The ingress strips the prefix
 (`rewrite-target: /$2`), so the app sees `/api/v1/models`. Requests matching
@@ -391,18 +394,19 @@ their order in the file, so a rule that has to match one exact path needs a `$` 
 TLS terminates on an F5 BigIP in front of the cluster, not at the Ingress, so `ingress.yaml` has
 no `tls:` block. The pods see plain HTTP, and the image starts uvicorn with
 `--proxy-headers --forwarded-allow-ips '*'` so redirects the app builds use `https://`. The
-certificate belongs to whoever runs the BigIP. To check the certificate and the HTTP redirect:
+certificate belongs to whoever runs the BigIP. To check the certificate and the HTTP redirect
+on either host:
 
 ```bash
-openssl s_client -connect ad-accel-online-ml-dev.slac.stanford.edu:443 \
-  -servername ad-accel-online-ml-dev.slac.stanford.edu </dev/null 2>/dev/null \
+HOST=ard-modeling-service.slac.stanford.edu  # or ad-accel-online-ml-dev.slac.stanford.edu
+openssl s_client -connect $HOST:443 -servername $HOST </dev/null 2>/dev/null \
   | openssl x509 -noout -subject -issuer -dates
-curl -sI http://ad-accel-online-ml-dev.slac.stanford.edu/lume-model-api/api/v1/models | head -3
+curl -sI http://$HOST/lume-model-api/api/v1/models | head -3
 ```
 
 The `whitelist-source-range` annotation limits access to SLAC and a few other ranges. It was
-tested on 2026-09-16: an allowlist of one client IP admitted that client and refused others, so
-the controller sees the real client address through the BigIP. A client that can't reach the URL
+tested on 2026-09-16 on the production host: an allowlist of one client IP admitted that client
+and refused others, so the controller sees the real client address through the BigIP. A client that can't reach the URL
 from off-site is hitting the allowlist. Remove the annotation if the service goes public.
 
 ## Run without Kubernetes

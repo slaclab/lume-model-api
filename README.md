@@ -43,6 +43,17 @@ Interactive API docs are at <http://localhost:8000/docs> (Swagger) and
 To run a virtual-accelerator model such as `cu_hxr_staged` locally, see
 [Local install for a VA model](#local-install-for-a-va-model).
 
+## Deployments
+
+| Environment | Cluster | Base URL |
+| --- | --- | --- |
+| Production | `ad-accel-online-ml` | `https://ard-modeling-service.slac.stanford.edu/lume-model-api` |
+| Development | `ad-accel-online-ml-dev` (vcluster) | `https://ad-accel-online-ml-dev.slac.stanford.edu/lume-model-api` |
+
+Clients append `/api/v1/models/...` to the base URL. Both are reachable from the SLAC network only.
+Nothing from this repo is deployed yet. The manifests in `deploy/kubernetes/` target the dev
+host. See [URLs](docs/maintainer/DEPLOY.md#urls) for routing, TLS and the allowlist.
+
 ## Docs
 
 **Using the API** (frontend, TypeScript and React):
