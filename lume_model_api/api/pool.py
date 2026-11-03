@@ -94,9 +94,14 @@ class ModelPoisoned(RuntimeError):
 
 def _init_worker(factory_path: str, kwargs: dict, model_name: str) -> None:
     # Pin threads per worker (K workers each spawning many BLAS/OMP threads would thrash the
-    # pod). Default 1, override with LUME_WORKER_THREADS.
+    # pod). An explicit LUME_WORKER_THREADS wins over the image's own *_NUM_THREADS defaults,
+    # which otherwise made it a no-op. Unset, an existing value is kept and the fallback is 1.
+    worker_threads = os.environ.get("LUME_WORKER_THREADS", "").strip()
     for var in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS", "TORCH_NUM_THREADS"):
-        os.environ.setdefault(var, os.environ.get("LUME_WORKER_THREADS", "1"))
+        if worker_threads:
+            os.environ[var] = worker_threads
+        else:
+            os.environ.setdefault(var, "1")
     os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
     # K instances may share a read-only design-beam HDF5, and HDF5's default file lock
     # rejects the concurrent open ([Errno 11]). Disable locking (before HDF5 loads) and

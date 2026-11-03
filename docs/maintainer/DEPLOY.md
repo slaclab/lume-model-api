@@ -146,7 +146,7 @@ Both Deployments run the same image and differ only in env. These are set on bot
 | `KMP_DUPLICATE_LIB_OK` | `TRUE` | Needed with torch and OpenMP. |
 | `LUME_POOL_WORKERS` | `2` | Default worker processes per model (each holds one model instance). |
 | `LUME_MAX_INFLIGHT` | `8` | Default evaluates in flight per model before a 503. |
-| `LUME_WORKER_THREADS` | `2` | BLAS and OpenMP threads per worker. See the note below. |
+| `LUME_WORKER_THREADS` | `2` | BLAS, OpenMP and torch threads per worker. |
 | `LUME_ROOT_PATH` | `/lume-model-api` | The ingress prefix. Only affects generated links, so Swagger at `<base>/docs` can find its schema. |
 
 The eval Deployment adds `LUME_ROLE=eval` and mounts no EPICS config. The live Deployment adds
@@ -159,10 +159,9 @@ To point the live pod at a different CA gateway, edit `EPICS_CA_ADDR_LIST` in
 `LUME_LIVE_SOURCE` and `LUME_LIVE_INPUTS` apply to the whole process, so every model on the live
 pod reads from the same source.
 
-The image itself sets `OMP_NUM_THREADS`, `MKL_NUM_THREADS`, `OPENBLAS_NUM_THREADS` and
-`TORCH_NUM_THREADS` to 2. Workers apply `LUME_WORKER_THREADS` with `setdefault`, so in the image
-those preset values win and changing `LUME_WORKER_THREADS` alone has no effect. Change the
-thread variables directly to tune it.
+The image also sets `OMP_NUM_THREADS`, `MKL_NUM_THREADS`, `OPENBLAS_NUM_THREADS` and
+`TORCH_NUM_THREADS` to 2. When `LUME_WORKER_THREADS` is set, each worker overwrites all four with
+it, so `LUME_WORKER_THREADS` is the one setting to change.
 
 Other variables the service reads, unset in the manifests:
 
