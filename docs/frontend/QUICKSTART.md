@@ -233,10 +233,8 @@ if (beam.kind === "particles") {
 }
 ```
 
-`coords` has `x`, `px`, `y`, `py`, `z`, `pz` and `weight` (per-particle charge in C), when the
-beam carries them. `weight` isn't a plot axis, so phase-space plots should leave it out.
-`stats` (`sigma_x`, `norm_emit_x`, `mean_energy`, `charge` and so on) are computed on the full
-beam before subsampling, so they don't change with `max_particles`.
+The coordinates, statistics and their units are listed in
+[`particles`](CONCEPTS.md#particles).
 
 ## Stream live frames
 

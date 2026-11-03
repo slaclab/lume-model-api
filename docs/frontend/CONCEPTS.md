@@ -91,9 +91,65 @@ A scalar's `value` and the numbers in `stats` are `null` when the model produced
 infinity, for example a degenerate beam with no meaningful emittance. The generated types say
 `number | null`. A statistic the beam can't provide is left out of `stats`.
 
-Particles are subsampled to `max_particles` (default 3000, maximum 200000). The subsample is a
-fixed stride through the beam rather than a random draw, so the same request always returns
-the same particles.
+### `particles`
+
+A particles output is a beam distribution, read from the model's `ParticleGroup`. Each
+coordinate is its own base64 string of `n` little-endian float32 values, one per particle.
+There's no `shape`, because every coordinate is 1-D with length `n`. The statistics are plain
+JSON numbers.
+
+```json
+{
+  "kind": "particles",
+  "n": 4,
+  "coords": {"x": "Jrm7uFIvCDm9fu04XoBZOQ==", "px": "fGCmRfA+q0URQEFFMNzBQQ==", "...": "..."},
+  "units": {"x": "m", "px": "eV/c", "...": "...", "weight": "C"},
+  "stats": {"sigma_x": 0.000231, "norm_emit_x": 1.23e-06, "mean_energy": 135002082.4, "...": "..."},
+  "stats_units": {"sigma_x": "m", "...": "...", "charge": "C"},
+  "variable_class": "ParticleGroupVariable"
+}
+```
+
+| Field | Type | Content |
+| --- | --- | --- |
+| `n` | integer | Particles per coordinate, after subsampling |
+| `coords` | coordinate to base64 string | Little-endian float32, `n` values each |
+| `units` | coordinate to string | Unit of each coordinate |
+| `stats` | statistic to number or `null` | Computed on the full beam |
+| `stats_units` | statistic to string | Unit of each statistic |
+
+`coords` holds these coordinates, in the units of
+[openPMD-beamphysics](https://github.com/ChristopherMayes/openPMD-beamphysics):
+
+| Coordinate | Unit | Meaning |
+| --- | --- | --- |
+| `x` | m | Horizontal position |
+| `px` | eV/c | Horizontal momentum |
+| `y` | m | Vertical position |
+| `py` | eV/c | Vertical momentum |
+| `z` | m | Longitudinal position |
+| `pz` | eV/c | Longitudinal momentum |
+| `weight` | C | Charge of each macroparticle. Not a plot axis. |
+
+`stats` holds these statistics:
+
+| Statistic | Unit | Meaning |
+| --- | --- | --- |
+| `sigma_x` | m | RMS horizontal beam size |
+| `sigma_y` | m | RMS vertical beam size |
+| `sigma_z` | m | RMS bunch length |
+| `norm_emit_x` | m | Normalized horizontal emittance |
+| `norm_emit_y` | m | Normalized vertical emittance |
+| `mean_energy` | eV | Mean particle energy |
+| `charge` | C | Total bunch charge |
+
+A coordinate or statistic the beam can't provide is left out, so code reads each key as
+possibly missing. The lists come from `PARTICLE_COORDS` and `PARTICLE_STATS` in
+`lume_model_api/model/evaluate.py`.
+
+Particles are subsampled to `max_particles` (default 3000, maximum 200000) by taking evenly
+spaced particles, so the same request always returns the same particles. `stats` are computed
+before subsampling, so they don't change with `max_particles`.
 
 ## Units
 
