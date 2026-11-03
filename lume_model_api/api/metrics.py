@@ -1,10 +1,9 @@
 """Prometheus metrics for the model pool.
 
-The honest saturation signal for autoscaling is in-flight work, not CPU (thread
-pinning makes CPU a poor proxy). These live in the main process, because the async
-`_submit` wrapper runs there even though the model itself runs in worker
-subprocesses. So the default single-process registry is correct and each pod
-exposes its own /metrics that KEDA/Prometheus scrapes.
+In-flight work is the saturation signal to scale on, not CPU (thread pinning makes CPU a
+poor proxy). These live in the main process, because the async `_submit` wrapper runs there
+even though the model itself runs in worker subprocesses. So the default single-process
+registry is correct and each pod exposes its own /metrics.
 """
 
 from __future__ import annotations
@@ -15,10 +14,9 @@ from prometheus_client import Counter, Gauge, Histogram
 # pool per model. Cardinality is the number of hosted models per pod, so a handful.
 #
 # The label changes what an aggregate means: avg(lume_pool_inflight) now averages across
-# models and so reads low when one model is saturated. The KEDA query sums by pod first, see
-# deploy/kubernetes/keda-scaledobject.yaml.
+# models and so reads low when one model is saturated. Sum by pod before averaging.
 
-# Current vs configured capacity. `inflight / max_inflight` is what KEDA scales on.
+# Current vs configured capacity. `inflight / max_inflight` is the saturation signal.
 POOL_INFLIGHT = Gauge(
     "lume_pool_inflight", "Requests currently in flight on the pool", labelnames=("model",)
 )
@@ -30,8 +28,8 @@ POOL_WORKERS = Gauge(
 )
 
 # 1 once the pool can no longer serve an evaluate. Needed as its own series because a dead pool
-# reports `lume_pool_inflight` 0, so the KEDA query in
-# deploy/kubernetes/keda-scaledobject.yaml reads a bricked pod as idle and would scale down.
+# reports `lume_pool_inflight` 0, so a dashboard or scaling decision based on in-flight work
+# reads a bricked pod as idle.
 # Alert on this, do not infer it from the other gauges.
 #
 # `reason` is one of `worker_lost`, `unusable` or `timeout` (`pool.DEAD_REASONS`). All three end

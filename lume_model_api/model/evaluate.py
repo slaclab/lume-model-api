@@ -82,8 +82,8 @@ class ModelUnusable(RuntimeError):
 
     `RuntimeError` rather than `ValueError` on purpose. `UnknownVariable` and `InvalidInput`
     are both `ValueError`s, and `api.main.evaluate_v1` catches that pair to answer 400, so a
-    `ValueError` subclass here would be reported as the caller's fault again, which is the
-    defect documented in `docs/POISONED_WORKER.md`.
+    `ValueError` subclass here would be reported as the caller's fault again. See
+    docs/maintainer/DESIGN_DECISIONS.md ("Model failures are 503, not 400").
     """
 
 
@@ -118,8 +118,8 @@ def _prevalidate(model, applied: Mapping[str, Any]) -> None:
     afterwards is by construction the model failing rather than the caller being wrong. That
     is what lets the classification below be exception-type-free.
 
-    Inferring the same thing from the exception type after the fact does not work, which is
-    the bug in `docs/POISONED_WORKER.md`: lume raises `ValueError` and `TypeError` for a bad
+    Inferring the same thing from the exception type after the fact does not work: lume
+    raises `ValueError` and `TypeError` for a bad
     value, and so do numpy and a broken lattice. `lume.exceptions.ReadOnlyError` subclasses
     `TypeError`, so it shares an arm with a genuine model failure too.
     """
@@ -235,8 +235,13 @@ def evaluate(
     known = info.input_ids
     unknown_inputs = sorted(set(requested_inputs) - known)
     if unknown_inputs:
+        # A demoted alias is a real control, so name the input that drives it rather than
+        # leaving the caller to find it in the config.
+        aliases = {item.id: item.alias_of for item in info.outputs if item.alias_of}
+        hints = [f"{name} (use {aliases[name]})" for name in unknown_inputs if name in aliases]
+        alias_hint = f" Read-only aliases: {', '.join(hints)}." if hints else ""
         raise UnknownVariable(
-            f"Unknown input id(s): {', '.join(unknown_inputs)}. "
+            f"Unknown input id(s): {', '.join(unknown_inputs)}.{alias_hint} "
             f"{_config_hint(info)} lists every input this model accepts."
         )
 

@@ -26,10 +26,9 @@ BREAKING = (
     "on it.\nAdding a new optional field is fine: update the expectation in this test.\n"
     "Renaming or removing a field, or making an optional field required, breaks those "
     "callers.\nAdd /api/v2 instead of changing v1 in place.\n\n"
-    "The v1 paths moved once more, to /api/v1/models/{name}/..., while there is still no "
-    "deployed\nconsumer and the UI port is in progress (see "
-    "docs/MIGRATING_LUME_VISUALIZATIONS.md). From that\nchange onward the contract is "
-    "additive only, paths included."
+    "The v1 paths moved once more, to /api/v1/models/{name}/..., before any consumer was "
+    "deployed.\nFrom that change onward the contract is additive only, paths included. See "
+    "docs/maintainer/CHANGING_THE_API.md."
 )
 
 # schema name -> (required field names, optional field names)

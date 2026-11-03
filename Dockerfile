@@ -5,8 +5,11 @@
 # built assets into /app/lume_model_api/static/, which main.py serves at "/" when present.
 # Nothing here needs Node.
 ARG PYTHON_VERSION=3.12
-ARG LCLS_LATTICE_REF=10ec2d2faeb6228640979e51683bbedebc78c62b
+ARG LCLS_LATTICE_REF=48c907d0c1b4ade6db351a4d5872a4680ae6523e
 ARG FACET_LATTICE_REF=bd628b7c00b3c405dae7ebd85e7c5b1833141e7c
+# bmad and pytao from conda-forge. Last tested together on 2026-11-03 against the va extra.
+ARG BMAD_VERSION=20261023.0
+ARG PYTAO_VERSION=1.3.3
 ARG DOCKER_PLATFORM=linux/amd64
 
 # --- Python runtime with Bmad: hosts a LUMEModel ---
@@ -14,6 +17,8 @@ FROM --platform=${DOCKER_PLATFORM} python:${PYTHON_VERSION}-slim AS runtime
 ARG PYTHON_VERSION
 ARG LCLS_LATTICE_REF
 ARG FACET_LATTICE_REF
+ARG BMAD_VERSION
+ARG PYTAO_VERSION
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -51,7 +56,7 @@ RUN arch="$(dpkg --print-architecture)" \
     && rm -f /tmp/miniforge.sh \
     && conda config --system --add channels conda-forge \
     && conda config --system --set channel_priority strict \
-    && conda install -y "python=${PYTHON_VERSION}" pip bmad pytao \
+    && conda install -y "python=${PYTHON_VERSION}" pip "bmad=${BMAD_VERSION}" "pytao=${PYTAO_VERSION}" \
     && patchelf --clear-execstack /opt/conda/lib/libtao.so \
     && conda clean -afy
 
@@ -62,31 +67,32 @@ RUN git clone https://github.com/slaclab/lcls-lattice.git /opt/lcls-lattice \
 RUN git clone https://github.com/slaclab/facet2-lattice.git /opt/facet-lattice \
     && cd /opt/facet-lattice && git checkout ${FACET_LATTICE_REF}
 
-# CPU torch first, so the bare `torch` in the [va] extra is already satisfied and pip never
-# pulls the much larger CUDA wheel.
+# CPU torch first, so the `torch==` pin in the [va] extra is already satisfied and pip never
+# pulls the much larger CUDA wheel. The two versions must match.
 RUN python -m pip install --upgrade setuptools wheel \
-    && python -m pip install --upgrade --index-url https://download.pytorch.org/whl/cpu torch
+    && python -m pip install --index-url https://download.pytorch.org/whl/cpu torch==2.15.0
 
 # Every pip pin lives in pyproject.toml. The requirements are read out of it here, before the
 # app code is copied, so this heavy layer is rebuilt only when pyproject.toml changes.
+# fastapi and pydantic are pinned on the command line to the versions CI tests and generates
+# openapi.json with (.github/workflows/contract.yml). Keep the two in step.
 #
-# The lume-bmad git ref there is load-bearing. VA declares a bare `lume-bmad` requirement, and
-# the PyPI release v0.1.0 constructs every `<ele>_beam` variable without `read_only=True`.
-# lume-base defaults `Variable.read_only` to False and does not set pydantic's
-# `validate_default`, so `ReadOnlyActionMixin`'s guard never fires, `introspect.describe` drops
-# the beams as writable non-scalars, and the API publishes `screens: []`. lume-bmad fixed this
-# in 110230c9 (2026-08-25) and has not tagged a release since.
+# virtual-accelerator declares a bare `lume-bmad` requirement, and the PyPI release v0.1.0
+# constructs every `<ele>_beam` variable without `read_only=True`. lume-base defaults
+# `Variable.read_only` to False and does not set pydantic's `validate_default`, so
+# `ReadOnlyActionMixin`'s guard never fires, `introspect.describe` drops the beams as writable
+# non-scalars, and the API publishes `screens: []`. The fix is in lume-bmad 0.1.1 and later.
 COPY pyproject.toml ./
 RUN python -c "import tomllib; p = tomllib.load(open('pyproject.toml', 'rb'))['project']; x = p['optional-dependencies']; print('\n'.join(p['dependencies'] + x['va'] + x['epics']))" > /tmp/requirements.txt \
-    && python -m pip install -r /tmp/requirements.txt \
+    && python -m pip install -r /tmp/requirements.txt fastapi==0.141.1 pydantic==2.13.4 \
     && rm /tmp/requirements.txt
 
 # Fail the build, rather than the pod, if the resolved lume-bmad predates the beam fix. A pod
 # built on the older release starts healthy and serves every scalar and image, so the only
 # symptom is an empty `screens` list on a route nothing probes. The source check is deliberate:
 # the flag is set at the call site, so no importable constant records whether this build has it.
-RUN python -c "import inspect, lume_bmad.model as m; src = inspect.getsource(m.LUMEBmadModel._refresh_dynamic_action_variables); assert 'read_only=True' in src, 'lume-bmad predates 110230c9, so every <ele>_beam variable would be dropped from the published outputs'" \
-    && python -m pip freeze | grep -iE 'lume|virtual-accelerator'
+RUN python -c "import inspect, lume_bmad.model as m; src = inspect.getsource(m.LUMEBmadModel._refresh_dynamic_action_variables); assert 'read_only=True' in src, 'lume-bmad predates 0.1.1, so every <ele>_beam variable would be dropped from the published outputs'" \
+    && python -m pip freeze | grep -iE '^(lume|virtual-accelerator|lcls-cu-inj|facet2.inj|distgen|torch=)'
 
 # App code, then the install. This order is load-bearing and was verified by reversing it:
 # `pip install -e .` with the package directory absent finds no packages, reports

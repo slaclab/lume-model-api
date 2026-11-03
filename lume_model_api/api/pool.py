@@ -47,8 +47,8 @@ _INFO = None
 _UNUSABLE: str | None = None
 
 # `outcome` label values on `lume_pool_recovery_total`. A model that defines no `recover()` is
-# "unavailable", which is every model today: see the recovery section of
-# docs/ARCHITECTURE.md.
+# "unavailable", which is every model today. See docs/maintainer/DESIGN_DECISIONS.md,
+# "Recovery belongs in the model".
 RECOVERY_UNAVAILABLE = "unavailable"
 RECOVERY_OK = "recovered"
 RECOVERY_FAILED = "failed"
@@ -88,15 +88,20 @@ class ModelPoisoned(RuntimeError):
 
     `_submit` converts this to `PoolDead`, which is why the escalation needs nothing new: a
     poisoned worker reaches the same 503 on evaluate, the same unhealthy `/healthz` and the
-    same pod restart as a lost one. See docs/ARCHITECTURE.md, "When a worker dies".
+    same pod restart as a lost one. See docs/maintainer/ARCHITECTURE.md, "When a worker dies".
     """
 
 
 def _init_worker(factory_path: str, kwargs: dict, model_name: str) -> None:
     # Pin threads per worker (K workers each spawning many BLAS/OMP threads would thrash the
-    # pod). Default 1, override with LUME_WORKER_THREADS.
+    # pod). An explicit LUME_WORKER_THREADS wins over the image's own *_NUM_THREADS defaults,
+    # which otherwise made it a no-op. Unset, an existing value is kept and the fallback is 1.
+    worker_threads = os.environ.get("LUME_WORKER_THREADS", "").strip()
     for var in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS", "TORCH_NUM_THREADS"):
-        os.environ.setdefault(var, os.environ.get("LUME_WORKER_THREADS", "1"))
+        if worker_threads:
+            os.environ[var] = worker_threads
+        else:
+            os.environ.setdefault(var, "1")
     os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
     # K instances may share a read-only design-beam HDF5, and HDF5's default file lock
     # rejects the concurrent open ([Errno 11]). Disable locking (before HDF5 loads) and
@@ -147,7 +152,7 @@ def _attempt_recovery(model) -> str:
     "unavailable" for every model this package currently hosts and the caller latches
     immediately. That is the whole protocol on purpose: the one measured cure is a sequence of
     Bmad commands, and a model-agnostic host has no business knowing them. See
-    docs/ARCHITECTURE.md for the sequence and where it belongs.
+    docs/maintainer/DESIGN_DECISIONS.md ("Recovery belongs in the model") for the sequence.
 
     `model.reset()` is emphatically not this, and must never be called on a Bmad model: it
     writes back a `_initial_state` snapshotted before `track_type` was set, which unregisters
@@ -410,8 +415,7 @@ class ModelPool:
 
         `kind` only labels metrics. Pass "live" from the SSE producer and "interactive" from
         the HTTP route so Prometheus can tell continuous stream load apart from user-driven
-        load. KEDA scales on lume_pool_inflight summed by pod, which ignores `kind`, so this
-        label is for observability only.
+        load. The label is for observability only.
         """
         return await self._submit(
             kind,

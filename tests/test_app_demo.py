@@ -473,7 +473,7 @@ def test_a_saturated_pool_is_503(client, monkeypatch) -> None:
 
 # --- a model that breaks itself --------------------------------------------------
 #
-# docs/POISONED_WORKER.md. A worker whose model stopped running used to answer 400, blaming the
+# docs/maintainer/DESIGN_DECISIONS.md, "Model failures are 503, not 400". A worker whose model stopped running used to answer 400, blaming the
 # caller for the server's own broken state, while `/healthz` reported ok so nothing restarted the
 # pod. These drive the escalation from the main process, by substituting an executor that fails
 # the way a poisoned worker does, because the demo model cannot be asked to break on demand and a
@@ -599,7 +599,7 @@ def test_a_recovered_model_is_503_without_killing_the_pool(client, monkeypatch) 
     """`ModelUnusable` reaching the route means the worker recovered, so the pod keeps serving.
 
     Inert today, because recovery needs the model to define `recover()` and nothing does (see
-    docs/ARCHITECTURE.md). Pinned anyway, because the arm exists so that a model which grows one
+    docs/maintainer/ARCHITECTURE.md). Pinned anyway, because the arm exists so that a model which grows one
     does not cost a pod restart per poisoning: without it this would be a 500.
     """
     from lume_model_api.model.evaluate import ModelUnusable

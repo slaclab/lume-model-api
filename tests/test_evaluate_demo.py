@@ -287,7 +287,7 @@ def test_particles_payload_raises_when_no_coordinate_reads() -> None:
 
 # --- classifying a model failure against a bad request ---------------------------
 #
-# The two halves of docs/POISONED_WORKER.md. A model that breaks itself must be a server fault,
+# See docs/maintainer/DESIGN_DECISIONS.md, "Model failures are 503, not 400". A model that breaks itself must be a server fault,
 # and a request the model would reject must stay a client fault. The second matters at least as
 # much as the first: an over-eager classifier turns every bad value into a latched worker and a
 # pod restart, which is worse than the bug being fixed here.
@@ -525,3 +525,37 @@ def test_a_demoted_alias_is_never_written_to_the_model() -> None:
         "resolution in introspect._resolve_aliases, MAG:1:BDES arrived from the baseline at its "
         "default and overwrote it."
     )
+
+
+def test_sending_a_demoted_alias_names_the_input_to_use() -> None:
+    """A caller that sends `BDES` gets a 400 that points at `BCTRL`, not a bare unknown id."""
+    from lume.model import LUMEModel
+    from lume.variables import ScalarVariable
+
+    from lume_model_api.model.evaluate import UnknownVariable, evaluate
+    from lume_model_api.model.introspect import describe
+
+    class Aliased(LUMEModel):
+        def __init__(self) -> None:
+            self._variables = {
+                name: ScalarVariable(name=name, default_value=-3.2, unit="kG")
+                for name in ("MAG:1:BCTRL", "MAG:1:BDES")
+            }
+
+        @property
+        def supported_variables(self) -> dict:
+            return self._variables
+
+        def reset(self) -> None:
+            pass
+
+        def _set(self, values: dict) -> None:
+            pass
+
+        def _get(self, names: list[str]) -> dict:
+            return {name: 0.0 for name in names}
+
+    model = Aliased()
+    info = describe(model, name="aliased")
+    with pytest.raises(UnknownVariable, match=r"MAG:1:BDES \(use MAG:1:BCTRL\)"):
+        evaluate(model, info, {"MAG:1:BDES": 1.0}, [])
