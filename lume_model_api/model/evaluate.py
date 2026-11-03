@@ -235,8 +235,13 @@ def evaluate(
     known = info.input_ids
     unknown_inputs = sorted(set(requested_inputs) - known)
     if unknown_inputs:
+        # A demoted alias is a real control, so name the input that drives it rather than
+        # leaving the caller to find it in the config.
+        aliases = {item.id: item.alias_of for item in info.outputs if item.alias_of}
+        hints = [f"{name} (use {aliases[name]})" for name in unknown_inputs if name in aliases]
+        alias_hint = f" Read-only aliases: {', '.join(hints)}." if hints else ""
         raise UnknownVariable(
-            f"Unknown input id(s): {', '.join(unknown_inputs)}. "
+            f"Unknown input id(s): {', '.join(unknown_inputs)}.{alias_hint} "
             f"{_config_hint(info)} lists every input this model accepts."
         )
 

@@ -141,9 +141,8 @@ def json_safe(value):
     the whole frame is lost rather than one field.
 
     Applied on the SSE path only. The HTTP route's `response_model` already maps a non-finite
-    float to `null`, so doing this here is what makes the two paths agree byte for byte. It
-    must NOT move into `result_to_wire`: that runs on both paths, and `ScalarOutput.value` is a
-    required `float`, so feeding None to the response model would turn a NaN into a 500.
+    float to `null`, so doing this here is what makes the two paths agree byte for byte. The
+    schema types those fields `number | null` so generated clients expect it.
     """
     if isinstance(value, float):
         return value if math.isfinite(value) else None

@@ -182,7 +182,7 @@ class ScalarOutput(BaseModel):
     """A single number."""
 
     kind: Literal["scalar"]
-    value: float = Field(description="The value. Null when the model returned NaN or Inf.")
+    value: float | None = Field(description="The value. Null when the model returned NaN or Inf.")
     unit: str = Field(default="", description="Unit, as declared by the model.")
     variable_class: str = Field(default="", description=_VARIABLE_CLASS)
 
@@ -214,8 +214,11 @@ class ParticlesOutput(BaseModel):
             "`weight` (per-particle charge)."
         )
     )
-    stats: dict[str, float] = Field(
-        description="Beam statistics, computed on the full beam before subsampling."
+    stats: dict[str, float | None] = Field(
+        description=(
+            "Beam statistics, computed on the full beam before subsampling. A statistic the "
+            "beam can't provide is omitted, and a non-finite one is null."
+        )
     )
     stats_units: dict[str, str] = Field(description="Statistic name to unit.")
     variable_class: str = Field(default="", description=_VARIABLE_CLASS)

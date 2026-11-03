@@ -87,10 +87,9 @@ Every kind also has `variable_class`, the name of the lume variable class behind
 `ScalarVariable`, `ElementNDVariable` or `EnumVariable`). It's finer than `kind` but rarely
 needed. The main use is telling an enum from a string, since both are `kind: "value"`.
 
-A scalar's `value` and the numbers in `stats` can be `null` when the model produced NaN or
+A scalar's `value` and the numbers in `stats` are `null` when the model produced NaN or
 infinity, for example a degenerate beam with no meaningful emittance. The generated types say
-`number`, so code that reads them should handle `null` anyway (see
-[Known gaps](TYPESCRIPT_CLIENT.md#known-gaps)).
+`number | null`. A statistic the beam can't provide is left out of `stats`.
 
 Particles are subsampled to `max_particles` (default 3000, maximum 200000). The subsample is a
 fixed stride through the beam rather than a random draw, so the same request always returns
@@ -141,8 +140,8 @@ outputs with `alias_of` naming the input to use:
 {"id": "QUAD:IN20:525:BDES", "kind": "scalar", "unit": "kG", "alias_of": "QUAD:IN20:525:BCTRL"}
 ```
 
-Reading the alias works and returns the same value as its input. Sending it in `inputs` is a 400
-for an unknown input id. `alias_of` is always `null` on an input. The demo model has no aliases.
+Reading the alias works and returns the same value as its input. Sending it in `inputs` is a 400,
+and the error names the input to use. `alias_of` is always `null` on an input. The demo model has no aliases.
 
 ## Live stream behavior
 

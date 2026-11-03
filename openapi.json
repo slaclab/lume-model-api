@@ -454,9 +454,16 @@
           },
           "stats": {
             "additionalProperties": {
-              "type": "number"
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             },
-            "description": "Beam statistics, computed on the full beam before subsampling.",
+            "description": "Beam statistics, computed on the full beam before subsampling. A statistic the beam can't provide is omitted, and a non-finite one is null.",
             "title": "Stats",
             "type": "object"
           },
@@ -509,9 +516,16 @@
             "type": "string"
           },
           "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "description": "The value. Null when the model returned NaN or Inf.",
-            "title": "Value",
-            "type": "number"
+            "title": "Value"
           },
           "variable_class": {
             "default": "",
@@ -836,11 +850,13 @@
         "responses": {
           "200": {
             "content": {
-              "application/json": {
-                "schema": {}
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/EvaluateV1Response"
+                }
               }
             },
-            "description": "Successful Response"
+            "description": "A `text/event-stream` of server-sent events. A `frame` event's data is an `EvaluateV1Response` as JSON. An `error` event's data is `{\"message\": string}`."
           },
           "422": {
             "content": {

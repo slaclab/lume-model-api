@@ -47,27 +47,18 @@ server.
 
 ## Known gaps
 
-**NaN and infinity arrive as `null` but are typed `number`.** A scalar's `value` and the values
-in a particles output's `stats` are `number` in the generated types. When the model produces a
-non-finite result, the server sends `null` instead, on both the evaluate route and the live
-stream. Code that reads these should treat them as `number | null`:
-
-```ts
-type ScalarOutput = components["schemas"]["ScalarOutput"];
-
-function scalarValue(output: ScalarOutput): number | null {
-  return output.value ?? null;
-}
-```
-
-**The live stream isn't in the schema.** `openapi.json` has the stream's path and query
-parameters, but not the server-sent events. The event names and payloads have to be typed by
-hand:
+**The live stream's event names aren't typed.** OpenAPI has no standard way to describe a
+stream of named events. The schema declares the stream route as `text/event-stream` with
+`EvaluateV1Response` as the payload, which is the data of a `frame` event. The event names and
+the `error` payload are typed by hand:
 
 ```ts
 type FrameEvent = EvaluateResponse; // data of a "frame" event
 type ErrorEvent = { message: string }; // data of an "error" event
 ```
+
+**`stats` keys can be missing.** A particles output's `stats` omits any statistic the beam can't
+provide, so code reads each one as possibly `undefined`.
 
 **`input_sources` and `sources` values are typed `string`.** In practice they are always
 `"request"`, `"baseline"` or `"live"`. A narrower type can be declared locally:

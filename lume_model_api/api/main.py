@@ -515,10 +515,30 @@ async def machine_snapshot(name: str) -> dict:
     }
 
 
+# The route returns a raw EventSourceResponse, so FastAPI can't infer this. OpenAPI has no
+# standard way to describe a stream of named events, so the frame payload is referenced as the
+# schema of the event-stream media type and the event names live in the description.
+_LIVE_STREAM_RESPONSES = {
+    200: {
+        "description": (
+            "A `text/event-stream` of server-sent events. A `frame` event's data is an "
+            "`EvaluateV1Response` as JSON. An `error` event's data is `{\"message\": string}`."
+        ),
+        "content": {
+            "text/event-stream": {
+                "schema": {"$ref": "#/components/schemas/EvaluateV1Response"}
+            }
+        },
+    }
+}
+
+
 @app.get(
     "/api/v1/models/{name}/live/stream",
     tags=["model-api"],
     summary="Stream live evaluations",
+    response_class=EventSourceResponse,
+    responses=_LIVE_STREAM_RESPONSES,
 )
 async def live_stream(
     name: str,
