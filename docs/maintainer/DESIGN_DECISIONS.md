@@ -49,20 +49,24 @@ calculation off first lets Tao accept the intermediate writes without evaluating
 orbit. Three of those five steps are Bmad commands, so the sequence belongs in lume-bmad or
 virtual-accelerator as a `recover()` method, not here.
 
-On lume-bmad `main` this failure may no longer happen. A bend set that Tao rejects now raises
-`TaoCommandError` and the model restores its previous state, so the instance stays healthy. The
-service still treats that error as `ModelUnusable` and restarts the pod, which is now more
-cautious than it needs to be. Revisit this when the pin moves.
+From lume-bmad `0.1.1` (pinned at `0.1.2`), a bend set that Tao rejects raises
+`TaoCommandError` and the model restores its previous state. A test on 2026-10-28 found the
+restored instance usable, with results matching a fresh one to the same precision two fresh
+instances match each other. The service still treats that error as `ModelUnusable` and restarts
+the pod. That's more cautious than lume-bmad now needs, and it stays until a `recover()` exists
+that has been tested on the dev cluster.
 
 ## No model.reset() on Bmad models
 
-`model.reset()` looks like the obvious recovery, and on the lume-bmad commit pinned in
-`pyproject.toml` it's destructive even on a healthy model. `LUMEBmadModel.__init__` snapshots
-`_initial_state` before `track_type` is set to `"beam"`, so `reset()` writes back `"single"` and
-unregisters 24 outputs, including every screen. After that, every evaluate fails.
+`model.reset()` looks like the obvious recovery. Before lume-bmad `0.1.1` it was destructive even
+on a healthy model. `LUMEBmadModel.__init__` snapshots `_initial_state` before `track_type` is set
+to `"beam"`, so `reset()` wrote back `"single"` and unregistered 24 outputs, including every
+screen. After that, every evaluate failed.
 
-lume-bmad `main` (commit `0a9fdca`) keeps `track_type` on reset, and there `reset()` leaves every
-variable in place. Until the pin moves past that commit, this service must not call it.
+lume-bmad `0.1.1` keeps `track_type` on reset (commit `0a9fdca`). On `0.1.2`, checked on
+2026-11-03, `reset()` on `cu_hxr_staged` leaves `track_type` at `"beam"` and keeps all 486
+variables. The service still doesn't call it, because `reset()` restores the model's initial
+state and not the baseline, and it hasn't been tested as a recovery after a Tao failure.
 `pool._attempt_recovery` only calls a model's own `recover()`.
 
 ## One input per control
@@ -166,8 +170,8 @@ validate defaults unless the model sets `validate_default`, which `lume.variable
 A model that mixes in `ReadOnlyActionMixin` without setting the flag gets its variable silently
 dropped here. That's how every `<ele>_beam` on `cu_hxr_staged` disappeared, leaving `screens: []`.
 Nothing in this service checks for it. The lume-bmad pin in `pyproject.toml` and the build-time
-assertion in the Dockerfile are what prevent it. lume-bmad `0.1.1` and later set the flag, but
-any other model can still hit the same trap.
+assertion in the Dockerfile prevent it for the beams. lume-bmad `0.1.1` and later set the flag,
+but any other model can still hit the same trap. Checked on 2026-10-29 with lume-base `0.6.0`.
 
 ## Live producer is a singleton
 

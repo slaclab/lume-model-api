@@ -69,7 +69,8 @@ reaches `openapi.json` and ReDoc.
 
 - **The lume stack is pinned in the `va` extra in `pyproject.toml`.** virtual-accelerator declares
   bare `lume-*` requirements. The Dockerfile and the README's local install both use that extra,
-  so don't pin anywhere else. `conda install bmad pytao` is unpinned. See
+  so don't pin anywhere else. bmad, pytao, fastapi and pydantic are the exceptions, pinned in
+  the Dockerfile. See
   [Build the image](docs/maintainer/DEPLOY.md#build-the-image).
 - **The k8s objects are new, not renamed.** `lume-model-api-*` objects in namespace
   `lume-model-api` run beside the old `lume-monitor-*` objects, which belong to

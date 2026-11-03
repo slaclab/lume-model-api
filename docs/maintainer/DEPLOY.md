@@ -37,16 +37,18 @@ rollback is a tag change. Then set `newTag` in `deploy/kubernetes/kustomization.
 
 The image contains:
 
-- miniforge, with `bmad` and `pytao` from conda-forge (and `libtao.so` patched with
-  `patchelf --clear-execstack`, which pytao needs)
+- miniforge, with `bmad` and `pytao` from conda-forge at `BMAD_VERSION` and `PYTAO_VERSION`
+  (and `libtao.so` patched with `patchelf --clear-execstack`, which pytao needs)
 - the CPU torch wheel, installed first so pip never pulls the CUDA wheel
 - the LCLS and FACET2 lattices, cloned at `LCLS_LATTICE_REF` and `FACET_LATTICE_REF`
 - this package with the `[va,epics]` extras
 
-The build args are `PYTHON_VERSION`, `LCLS_LATTICE_REF`, `FACET_LATTICE_REF` and
-`DOCKER_PLATFORM`. Pip versions aren't build args. They live in the `va` extra in
-`pyproject.toml`, which the README's local install uses too, so the image and a workstation
-get the same stack.
+The build args are `PYTHON_VERSION`, `LCLS_LATTICE_REF`, `FACET_LATTICE_REF`, `BMAD_VERSION`,
+`PYTAO_VERSION` and `DOCKER_PLATFORM`. Pip versions aren't build args. They live in the `va`
+extra in `pyproject.toml`, which the README's local install uses too, so the image and a
+workstation get the same stack. fastapi and pydantic are the exception: the Dockerfile pins them
+on its `pip install` line to the versions in `.github/workflows/contract.yml`, so the image runs
+the API stack CI tests.
 
 ### Pinned dependencies
 
@@ -54,9 +56,7 @@ virtual-accelerator declares bare `lume-base`, `lume-bmad`, `lume-torch` and `lu
 requirements, so the `va` extra pins each one. Without the pins, a rebuild installs whatever
 PyPI has that day. lume-bmad `0.1.0` builds every `<ele>_beam` variable without
 `read_only=True`, so the service drops the beams as writable non-scalars and publishes
-`screens: []`. The fix landed in lume-bmad `0.1.1` (on PyPI since 2026-09-24). The `va` extra
-still pins lume-bmad to an older git commit that has the fix, and can move to `lume-bmad==0.1.1`
-with the next pin update. See
+`screens: []`. The fix is in lume-bmad `0.1.1` and later, and the `va` extra pins `0.1.2`. See
 [DESIGN_DECISIONS.md](DESIGN_DECISIONS.md#output_beam-and-writable-non-scalars-are-not-published).
 
 After installing the pins, the Dockerfile checks the source of
@@ -65,10 +65,14 @@ it's missing. It then prints the resolved lume and virtual-accelerator versions.
 without the fix would start healthy and serve every scalar and image, and the only symptom
 would be an empty `screens` list.
 
-`conda install bmad pytao` isn't pinned, so a fresh solve can pull a Bmad that rejects a
-model's `tao.init`. If that happens, pin the versions from the last build that worked. The last
-known-good pair is bmad `20261023.0` with pytao `1.3.3` (checked 2026-10-29 against
-virtual-accelerator and lume-bmad `main`).
+virtual-accelerator requires `lcls-cu-inj-model` and `facet2-inj-ml-model` as git URLs with no
+commit, and both require `distgen` and `lume-torch` from git the same way. pip treats a pinned
+URL for one of those packages as a conflict, so they install from their default branch at build
+time. The Dockerfile's `pip freeze` line prints what each build resolved.
+
+bmad and pytao are pinned by the `BMAD_VERSION` and `PYTAO_VERSION` build args, at bmad
+`20261023.0` and pytao `1.3.3` (tested together on 2026-11-03). A newer Bmad can reject a
+model's `tao.init`, so bump them only after testing the pair against the `va` extra.
 
 ### Packaging checks
 
@@ -141,7 +145,7 @@ Both Deployments run the same image and differ only in env. These are set on bot
 
 | Variable | Value in the manifests | Notes |
 | --- | --- | --- |
-| `LUME_MODELS` | `{"cu_hxr_staged": {"kwargs": {"n_particles": 1000, "end_element": "TD11"}}}` | Models to host, keyed by URL name. Format in [ADDING_A_MODEL.md](ADDING_A_MODEL.md#lume_models-reference). |
+| `LUME_MODELS` | `{"cu_hxr_staged": {"kwargs": {"n_particles": 1000, "end_element": "OTR3"}}}` | Models to host, keyed by URL name. Format in [ADDING_A_MODEL.md](ADDING_A_MODEL.md#lume_models-reference). |
 | `LCLS_LATTICE` | `/opt/lcls-lattice` | Read by the model. Also set in the image. |
 | `KMP_DUPLICATE_LIB_OK` | `TRUE` | Needed with torch and OpenMP. |
 | `LUME_POOL_WORKERS` | `2` | Default worker processes per model (each holds one model instance). |

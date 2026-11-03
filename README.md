@@ -62,7 +62,7 @@ full `module:function` path.
 | Shortcut | Model | On dev | On prod |
 | --- | --- | --- | --- |
 | `demo` | Small built-in model for local runs and tests | No | No |
-| `cu_hxr_staged` | LCLS Cu linac to the HXR line, injector surrogate plus Bmad, tracked to `TD11` | Yes | No |
+| `cu_hxr_staged` | LCLS Cu linac to the HXR line, injector surrogate plus Bmad, tracked to `TD11` | Yes, to `OTR3` (see [TODO](docs/maintainer/TODO.md#demo-deploy-in-progress-2026-11-03)) | No |
 | `cu_hxr_bmad` | LCLS Cu linac, Bmad only, from `OTR2` to `TD11` | No | No |
 | `facet_staged` | FACET-II from `PR10241`, injector surrogate plus Bmad | No | No |
 | `facet_bmad` | FACET-II, Bmad only | No | No |
@@ -121,6 +121,8 @@ field, making an optional field required, or moving a path needs `/api/v2`. See
 - [Deploying](docs/maintainer/DEPLOY.md): image, Kubernetes, sizing, scaling, probes
 - [Changing the API](docs/maintainer/CHANGING_THE_API.md): the additive-only rule and how to
   regenerate `openapi.json`
+- [To do](docs/maintainer/TODO.md): open work, starting with the demo deploy and what's blocked on
+  virtual-accelerator
 - [Writing docs](docs/WRITING_DOCS.md): the style these docs follow
 - [AGENTS.md](AGENTS.md): short list of traps, for people and coding agents
 

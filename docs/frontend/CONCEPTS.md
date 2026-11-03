@@ -243,8 +243,10 @@ this repo. Porting it mostly means these changes.
 **Evaluate request changes.**
 
 - `include_image` and `include_distribution` are gone. `screen` returns both.
-- `include_twiss` is gone. Add the Twiss ids to `outputs`. For the LCLS Bmad models they're `s`,
-  `x.beta` and `y.beta`, and the stream takes them as `&outputs=s,x.beta,y.beta`.
+- `include_twiss` is gone. Add the Twiss ids to `outputs`. For the LCLS Bmad models the arrays
+  the old backend returned are `comb:s`, `comb:x.beta` and `comb:y.beta`, computed from the
+  tracked beam. The stream takes them as `&outputs=comb:s,comb:x.beta,comb:y.beta`. The
+  lattice Twiss functions at the end of each element are `s_ele`, `a.beta` and `b.beta`.
 - The old backend always blurred screen images by 1 pixel and normalized them to a peak of 1.
   Send `smooth_images_sigma_px: 1.0` for the blur. There's no normalization anymore.
 - Out-of-range `max_particles` and non-finite inputs are now 422s instead of being clamped.

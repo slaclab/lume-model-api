@@ -24,14 +24,18 @@ epics = ["pyepics>=3.5"]
 dev = ["pytest", "httpx"]
 
 # Bmad, pytao and the lattices need to be set up separately.
-# lume-bmad must stay a git ref for now.
+# virtual-accelerator declares its lume requirements without versions, so each one is pinned
+# here. lume-bmad must be 0.1.1 or later, see the Dockerfile's beam check.
+# virtual-accelerator requires lcls-cu-inj-model and facet2-inj-ml-model as git URLs with no
+# commit, and they require distgen the same way. pip treats a pinned URL for one of those
+# packages as a conflict, so they resolve to their default branch at build time and the
+# Dockerfile prints what it got.
 va = [
-    "torch",
+    "torch==2.15.0",
     "lume-base==0.6.0",
-    "lume-torch==3.0.0",
     "lume-cheetah==0.1.0",
-    "lume-bmad @ git+https://github.com/lume-science/lume-bmad@8f3ed201d546878441e06aced506fd4411c42492",
-    "virtual-accelerator[surrogate,bmad] @ git+https://github.com/slaclab/virtual-accelerator@043a2f0fca3a8c7e1f837aa226a42a167a78f9fb",
+    "lume-bmad==0.1.2",
+    "virtual-accelerator[surrogate,bmad] @ git+https://github.com/slaclab/virtual-accelerator@9e656708ed6bc0a4cb8ff363677a4ccbd27333de",
 ]
 
 [tool.setuptools.packages.find]
