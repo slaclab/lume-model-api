@@ -141,12 +141,22 @@ def derived_range_fraction() -> float:
 
 def variable_kind(variable) -> str:
     """Map a lume variable class onto one of the four wire output kinds."""
+    import numpy as np
+
     from lume.variables import NDVariable, ParticleGroupVariable, ScalarVariable
 
     # IntVariable subclasses ScalarVariable, so it lands on "scalar" here too.
     if isinstance(variable, ScalarVariable):
         return "scalar"
     if isinstance(variable, NDVariable):
+        # The "array" wire kind ships as base64 little-endian float32, so an NDVariable whose
+        # dtype cannot be cast to float32 (lattice element names, status strings) would crash
+        # the whole evaluate inside `encode_f32` with `could not convert string to float`. A
+        # non-numeric NDVariable falls through to the "value" kind, which ships the array as a
+        # nested JSON list via `.tolist()` and cannot take the rest of the response down with it.
+        dtype = getattr(variable, "dtype", None)
+        if dtype is not None and not np.issubdtype(dtype, np.number):
+            return "value"
         return "array"
     if isinstance(variable, ParticleGroupVariable):
         return "particles"
