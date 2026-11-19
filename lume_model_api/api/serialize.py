@@ -83,14 +83,6 @@ def _smooth(arr: np.ndarray, sigma_px: float) -> np.ndarray:
 
 def serialize_array(entry: dict) -> dict:
     arr = np.asarray(entry["array"])
-    # The "array" wire ships base64 little-endian float32, so a non-numeric array (lattice element
-    # names, say) would crash `encode_f32` with `could not convert string to float` and take down
-    # every other output in the same request. Ship it as `kind: "value"` with the data as a nested
-    # JSON list instead. `variable_kind` in introspect.py already routes a declared non-numeric
-    # NDVariable through the value path, so this guard catches the case where a variable declared
-    # a numeric dtype but at runtime produced a non-numeric array.
-    if not np.issubdtype(arr.dtype, np.number):
-        return {"kind": "value", "value": arr.tolist()}
     # Smoothing and downsampling only make sense for images. Everything else (Twiss curves,
     # 1-D scans, n-D tensors) ships at full resolution with its shape declared, and the
     # client reshapes the flat float32 buffer.

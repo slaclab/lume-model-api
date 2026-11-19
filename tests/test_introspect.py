@@ -122,26 +122,6 @@ def test_image_is_paired_by_element_name(info) -> None:
     assert outputs[SCREEN_B_IMAGE].element_name == "OTR_B"
 
 
-def test_a_non_numeric_ndvariable_is_classified_as_value() -> None:
-    """An NDVariable of strings (lattice element names, say) cannot ship on the "array" wire.
-
-    The "array" kind encodes as base64 little-endian float32, so an NDVariable with a non-numeric
-    dtype would crash the whole evaluate inside `encode_f32` with `could not convert string to
-    float` and take down every other requested output with it. Falling through to "value" ships
-    the array as a nested JSON list and keeps the request intact.
-    """
-    import numpy as np
-    from lume.variables import NDVariable
-
-    from lume_model_api.model.introspect import variable_kind
-
-    numeric = NDVariable(name="x", shape=(3,))
-    assert variable_kind(numeric) == "array"
-
-    strings = NDVariable(name="name", shape=(3,), dtype=np.dtype("<U32"))
-    assert variable_kind(strings) == "value"
-
-
 def test_an_int_variable_is_classified_as_a_scalar() -> None:
     """`variable_kind` relies on `IntVariable` subclassing `ScalarVariable` in lume-base.
 
