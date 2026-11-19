@@ -272,6 +272,34 @@ def test_non_image_arrays_are_never_smoothed(model, info) -> None:
     assert plain["x.beta"]["data_b64"] == asked["x.beta"]["data_b64"]
 
 
+def test_non_numeric_array_falls_back_to_value_kind() -> None:
+    """A string array cannot ship on the array wire, so `serialize_array` reclassifies it.
+
+    The "array" kind encodes as base64 little-endian float32, which crashes on a string array
+    with `could not convert string to float` and takes the whole response down (issue #7, the
+    `cu_hxr_staged` model's `name` output). The defensive guard in `serialize_array` returns a
+    `kind: "value"` payload with the data as a nested JSON list instead. `variable_kind` in
+    introspect.py routes a declared non-numeric NDVariable this way already; this test pins the
+    serializer-level guard that catches a dtype mismatch between the declared kind and the
+    runtime array.
+    """
+    from lume_model_api.api.serialize import serialize_array, serialize_output
+
+    names = np.array(["BEGINNING", "QUAD1", "DRIFT1"], dtype="<U32")
+
+    wire = serialize_array({"kind": "array", "array": names, "unit": ""})
+    assert wire == {"kind": "value", "value": ["BEGINNING", "QUAD1", "DRIFT1"]}
+
+    # And the whole-output path injects variable_class the same as every other kind, so a client
+    # that discriminates on `kind` sees a uniform wire shape.
+    wire = serialize_output({
+        "kind": "array", "array": names, "unit": "", "variable_class": "NDVariable"
+    })
+    assert wire["kind"] == "value"
+    assert wire["value"] == ["BEGINNING", "QUAD1", "DRIFT1"]
+    assert wire["variable_class"] == "NDVariable"
+
+
 def test_particles_payload_raises_when_no_coordinate_reads() -> None:
     """_particles_payload must not silently return an empty beam when every coordinate fails.
 
