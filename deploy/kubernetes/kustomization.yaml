@@ -3,11 +3,26 @@ kind: Kustomization
 namespace: lume-model-api
 resources:
   - namespace.yaml
-  - configmap-epics.yaml
   - deployment.yaml
   - deployment-live.yaml
   - service.yaml
   - ingress.yaml
+
+# Single source of truth for LUME_MODELS: edit the value in deployment.yaml and
+# kustomize copies it into deployment-live.yaml at build time so eval and live
+# cannot drift. A model served by the eval pool but not the live pod would have
+# no live stream; a model in live but not eval would have no evaluate route.
+replacements:
+  - source:
+      kind: Deployment
+      name: lume-model-api-eval
+      fieldPath: spec.template.spec.containers.[name=lume-model-api].env.[name=LUME_MODELS].value
+    targets:
+      - select:
+          kind: Deployment
+          name: lume-model-api-live
+        fieldPaths:
+          - spec.template.spec.containers.[name=lume-model-api].env.[name=LUME_MODELS].value
 
 # Pin the image tag for a reproducible test. Bump newTag when you push a new image.
 # Nothing in CI builds the image, so build and push one before changing this. The dev

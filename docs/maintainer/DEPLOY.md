@@ -155,10 +155,20 @@ Both Deployments run the same image and differ only in env. These are set on bot
 
 The eval Deployment adds `LUME_ROLE=eval` and mounts no EPICS config. The live Deployment adds
 `LUME_ROLE=live` and `LUME_LIVE_SOURCE=epics`, and loads `EPICS_CA_AUTO_ADDR_LIST` and
-`EPICS_CA_ADDR_LIST` from the `lume-model-api-epics-config` ConfigMap with `envFrom`. Channel
-access reads those once when pyepics is imported, so they have to be in the pod env at startup.
-To point the live pod at a different CA gateway, edit `EPICS_CA_ADDR_LIST` in
-`configmap-epics.yaml`.
+`EPICS_CA_ADDR_LIST` from the `lume-model-api-epics` Secret with `envFrom`. Channel access
+reads those once when pyepics is imported, so they have to be in the pod env at startup.
+
+The Secret is site-specific (the CA gateway IP depends on the cluster) and is NOT in this
+repo; create it in the `lume-model-api` namespace out-of-band:
+
+```
+kubectl -n lume-model-api create secret generic lume-model-api-epics \
+  --from-literal=EPICS_CA_AUTO_ADDR_LIST=NO \
+  --from-literal=EPICS_CA_ADDR_LIST=<gateway-ip>:5065
+```
+
+To point the live pod at a different CA gateway, recreate the Secret and
+`kubectl rollout restart deployment/lume-model-api-live` (envFrom values are read at pod start).
 
 `LUME_LIVE_SOURCE` and `LUME_LIVE_INPUTS` apply to the whole process, so every model on the live
 pod reads from the same source.

@@ -88,10 +88,3 @@ section), so the demo tracks a shorter beamline.
   a rebuild installs the latest. On 2026-11-03 that was uvicorn `0.54.0` and sse-starlette `3.6.0`,
   against `0.53.0` and `3.4.11` in the image deployed before this bump.
 
-## Deployment config
-
-- **One `LUME_MODELS` for both Deployments.** `deployment.yaml` and `deployment-live.yaml` each
-  set `LUME_MODELS`, and nothing checks they match. The eval pods serve `/config` and the live pod
-  serves the stream, so if they drift `/config` can list a screen that `/live/stream` rejects with
-  a 400. Move the value into a ConfigMap that both reference (as `configmap-epics.yaml` does for
-  the EPICS settings), or add a test that loads both manifests and compares the two values.
