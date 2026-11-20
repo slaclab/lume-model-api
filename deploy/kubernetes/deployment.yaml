@@ -37,6 +37,9 @@ spec:
             # /api/v1/models/<name>/... . Add a key to host a second model in the same
             # process, with its own optional "workers", "kwargs" and "max_inflight".
             #
+            # SOURCE OF TRUTH for both pools: kustomize `replacements` copies this value
+            # into deployment-live.yaml at build time (see kustomization.yaml). Edit here.
+            #
             # Memory scales with the SUM of workers across models, at roughly 2 GB per real
             # model worker, so adding a model means raising requests and limits below.
             - name: LUME_MODELS
