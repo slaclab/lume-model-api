@@ -67,8 +67,7 @@ full `module:function` path.
 | `facet_staged` | FACET-II from `PR10241`, injector surrogate plus Bmad | No | No |
 | `facet_bmad` | FACET-II, Bmad only | No | No |
 
-The deployed set comes from `LUME_MODELS` in `deploy/kubernetes/deployment.yaml` and
-`deployment-live.yaml`, and `GET /api/v1/models` on a running deployment is the authoritative
+The deployed set comes from `LUME_MODELS` in `deploy/kubernetes/kustomization.yaml`, and `GET /api/v1/models` on a running deployment is the authoritative
 list. Factories and default kwargs are in
 [Adding a model](docs/maintainer/ADDING_A_MODEL.md#host-a-virtual-accelerator-model).
 

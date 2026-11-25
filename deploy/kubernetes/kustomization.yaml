@@ -8,21 +8,23 @@ resources:
   - service.yaml
   - ingress.yaml
 
-# Single source of truth for LUME_MODELS: edit the value in deployment.yaml and
-# kustomize copies it into deployment-live.yaml at build time so eval and live
-# cannot drift. A model served by the eval pool but not the live pod would have
-# no live stream; a model in live but not eval would have no evaluate route.
-replacements:
-  - source:
-      kind: Deployment
-      name: lume-model-api-eval
-      fieldPath: spec.template.spec.containers.[name=lume-model-api].env.[name=LUME_MODELS].value
-    targets:
-      - select:
-          kind: Deployment
-          name: lume-model-api-live
-        fieldPaths:
-          - spec.template.spec.containers.[name=lume-model-api].env.[name=LUME_MODELS].value
+# SOURCE OF TRUTH for LUME_MODELS: the models both pools host, keyed by the URL name each
+# answers on at /api/v1/models/<name>/... . Edit here. Both Deployments read it from this
+# ConfigMap so eval and live cannot drift. A model served by the eval pool but not the live
+# pod would have no live stream; a model in live but not eval would have no evaluate route.
+# Add a key to host a second model in the same process, with its own optional "workers",
+# "kwargs" and "max_inflight". The value is JSON inside a YAML string, so keep the outer
+# single quotes.
+#
+# Memory scales with the SUM of workers across models, at roughly 2 GB per real model
+# worker, so adding a model means raising requests and limits in both Deployments.
+#
+# Kustomize appends a content hash to the ConfigMap name and rewrites both references, so
+# changing the value rolls both Deployments on the next apply.
+configMapGenerator:
+  - name: lume-model-api-models
+    literals:
+      - 'LUME_MODELS={"cu_hxr_staged": {"kwargs": {"n_particles": 1000, "end_element": "OTR3"}}}'
 
 # Pin the image tag for a reproducible test. Bump newTag when you push a new image.
 # Nothing in CI builds the image, so build and push one before changing this. The dev

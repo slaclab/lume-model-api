@@ -33,17 +33,16 @@ spec:
             - containerPort: 8000
               name: http
           env:
-            # The models this pod hosts, keyed by the URL name each answers on at
-            # /api/v1/models/<name>/... . Add a key to host a second model in the same
-            # process, with its own optional "workers", "kwargs" and "max_inflight".
-            #
-            # SOURCE OF TRUTH for both pools: kustomize `replacements` copies this value
-            # into deployment-live.yaml at build time (see kustomization.yaml). Edit here.
+            # The models this pod hosts. Set in kustomization.yaml `configMapGenerator`, shared
+            # with deployment-live.yaml so eval and live cannot drift. Edit it there.
             #
             # Memory scales with the SUM of workers across models, at roughly 2 GB per real
             # model worker, so adding a model means raising requests and limits below.
             - name: LUME_MODELS
-              value: '{"cu_hxr_staged": {"kwargs": {"n_particles": 1000, "end_element": "OTR3"}}}'
+              valueFrom:
+                configMapKeyRef:
+                  name: lume-model-api-models
+                  key: LUME_MODELS
             - name: LUME_ROLE
               value: "eval"
             # The ingress prefix, used only for the links Swagger and redirects generate. The

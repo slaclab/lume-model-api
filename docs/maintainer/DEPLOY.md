@@ -121,7 +121,7 @@ cluster runs the `dev` tag set in `kustomization.yaml`.
    kubectl -n lume-model-api rollout status deployment/lume-model-api-live
    ```
 
-The kustomization creates the namespace, the EPICS ConfigMap, both Deployments, both Services
+The kustomization creates the namespace, the `LUME_MODELS` ConfigMap, both Deployments, both Services
 and the Ingress. A rollback is the previous tag plus a re-apply. To restart pods without
 changing the tag:
 
@@ -202,11 +202,12 @@ takes, or a slow frame becomes a pod restart. See
 
 ### Changing the hosted models
 
-Changing `LUME_MODELS` is an env edit and a rollout, with no rebuild, as long as each model's
+Changing `LUME_MODELS` is a one-line edit and a rollout, with no rebuild, as long as each model's
 Python dependencies are already in the image. The full procedure is in
-[Deploy the change](ADDING_A_MODEL.md#deploy-the-change). Keep `LUME_MODELS` the same in both Deployments. A
-model served by the eval pool but not the live pod has no live stream. Adding a model also means
-raising memory and the startup budget (see [Sizing](#sizing)).
+[Deploy the change](ADDING_A_MODEL.md#deploy-the-change). The value is set once, under
+`configMapGenerator` in `deploy/kubernetes/kustomization.yaml`, and both Deployments read it
+from that ConfigMap, so the two pools can't drift. Adding a model also means raising memory and
+the startup budget (see [Sizing](#sizing)).
 
 ## Sizing
 

@@ -30,18 +30,17 @@ spec:
             - containerPort: 8000
               name: http
           env:
-            # The models this pod hosts, keyed by the URL name each answers on at
-            # /api/v1/models/<name>/... . Set in deployment.yaml and copied in by kustomize
-            # `replacements` (see kustomization.yaml) so eval and live cannot drift. The
-            # sentinel below is overwritten at `kustomize build` time; it only reaches a
-            # pod if someone applies this file directly without kustomize, in which case
-            # the app fails to parse it and the pod never becomes ready — on purpose.
+            # The models this pod hosts. Set in kustomization.yaml `configMapGenerator`, shared
+            # with deployment.yaml so eval and live cannot drift. Edit it there.
             #
             # Memory scales with the SUM of workers across models, at roughly 2 GB per real
             # model worker, so adding a model means raising requests and limits below. Each
             # model also runs its own read loop per active output set.
             - name: LUME_MODELS
-              value: "REPLACED_BY_KUSTOMIZE_SEE_DEPLOYMENT_YAML"
+              valueFrom:
+                configMapKeyRef:
+                  name: lume-model-api-models
+                  key: LUME_MODELS
             - name: LUME_LIVE_SOURCE
               value: "epics"
             - name: LUME_ROLE

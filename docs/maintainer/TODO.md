@@ -16,8 +16,8 @@ section), so the demo tracks a shorter beamline.
    their tested versions, pinned in the Dockerfile (see
    [Deferred pin bumps](#deferred-pin-bumps)). The stack installed cleanly in a fresh environment
    on bmad `20261023.0` and pytao `1.3.3`.
-2. **End the model at `OTR3`.** `LUME_MODELS` in both `deploy/kubernetes/deployment.yaml` and
-   `deployment-live.yaml` sets `end_element` to `OTR3`. The model then has 11 inputs and no bend
+2. **End the model at `OTR3`.** `LUME_MODELS` in `deploy/kubernetes/kustomization.yaml`, shared by
+   both Deployments, sets `end_element` to `OTR3`. The model then has 11 inputs and no bend
    in range, so the live pod reads no `BEND:*` PV. The first bend past `OTR3` is
    `BEND:IN20:661` (BX01), between `OTR3` and `OTR4`. Its live `BCTRL` (0.000166 GeV/c, against
    a design of 0.135) moves the beam about 158 mm off `OTR4`, so any span past `OTR3` also needs
