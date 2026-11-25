@@ -30,15 +30,17 @@ spec:
             - containerPort: 8000
               name: http
           env:
-            # The models this pod hosts, keyed by the URL name each answers on at
-            # /api/v1/models/<name>/... . Keep this in step with deployment.yaml: a model
-            # served by the eval pool but not here has no live stream.
+            # The models this pod hosts. Set in kustomization.yaml `configMapGenerator`, shared
+            # with deployment.yaml so eval and live cannot drift. Edit it there.
             #
             # Memory scales with the SUM of workers across models, at roughly 2 GB per real
             # model worker, so adding a model means raising requests and limits below. Each
             # model also runs its own read loop per active output set.
             - name: LUME_MODELS
-              value: '{"cu_hxr_staged": {"kwargs": {"n_particles": 1000, "end_element": "OTR3"}}}'
+              valueFrom:
+                configMapKeyRef:
+                  name: lume-model-api-models
+                  key: LUME_MODELS
             - name: LUME_LIVE_SOURCE
               value: "epics"
             - name: LUME_ROLE
@@ -61,9 +63,11 @@ spec:
             - name: LUME_WORKER_THREADS
               value: "2"
           envFrom:
-            # Read-only EPICS Channel Access config for the live view.
-            - configMapRef:
-                name: lume-model-api-epics-config
+            # EPICS Channel Access config for the live view. The CA gateway IP is
+            # site-specific so the Secret is NOT in this repo — create it out-of-band
+            # per cluster; see docs/maintainer/DEPLOY.md.
+            - secretRef:
+                name: lume-model-api-epics
           resources:
             requests:
               cpu: "2"

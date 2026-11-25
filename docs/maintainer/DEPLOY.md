@@ -121,7 +121,7 @@ cluster runs the `dev` tag set in `kustomization.yaml`.
    kubectl -n lume-model-api rollout status deployment/lume-model-api-live
    ```
 
-The kustomization creates the namespace, the EPICS ConfigMap, both Deployments, both Services
+The kustomization creates the namespace, the `LUME_MODELS` ConfigMap, both Deployments, both Services
 and the Ingress. A rollback is the previous tag plus a re-apply. To restart pods without
 changing the tag:
 
@@ -155,10 +155,20 @@ Both Deployments run the same image and differ only in env. These are set on bot
 
 The eval Deployment adds `LUME_ROLE=eval` and mounts no EPICS config. The live Deployment adds
 `LUME_ROLE=live` and `LUME_LIVE_SOURCE=epics`, and loads `EPICS_CA_AUTO_ADDR_LIST` and
-`EPICS_CA_ADDR_LIST` from the `lume-model-api-epics-config` ConfigMap with `envFrom`. Channel
-access reads those once when pyepics is imported, so they have to be in the pod env at startup.
-To point the live pod at a different CA gateway, edit `EPICS_CA_ADDR_LIST` in
-`configmap-epics.yaml`.
+`EPICS_CA_ADDR_LIST` from the `lume-model-api-epics` Secret with `envFrom`. Channel access
+reads those once when pyepics is imported, so they have to be in the pod env at startup.
+
+The Secret is site-specific (the CA gateway IP depends on the cluster) and is NOT in this
+repo; create it in the `lume-model-api` namespace out-of-band:
+
+```
+kubectl -n lume-model-api create secret generic lume-model-api-epics \
+  --from-literal=EPICS_CA_AUTO_ADDR_LIST=NO \
+  --from-literal=EPICS_CA_ADDR_LIST=<gateway-ip>:5065
+```
+
+To point the live pod at a different CA gateway, recreate the Secret and
+`kubectl rollout restart deployment/lume-model-api-live` (envFrom values are read at pod start).
 
 `LUME_LIVE_SOURCE` and `LUME_LIVE_INPUTS` apply to the whole process, so every model on the live
 pod reads from the same source.
@@ -192,11 +202,12 @@ takes, or a slow frame becomes a pod restart. See
 
 ### Changing the hosted models
 
-Changing `LUME_MODELS` is an env edit and a rollout, with no rebuild, as long as each model's
+Changing `LUME_MODELS` is a one-line edit and a rollout, with no rebuild, as long as each model's
 Python dependencies are already in the image. The full procedure is in
-[Deploy the change](ADDING_A_MODEL.md#deploy-the-change). Keep `LUME_MODELS` the same in both Deployments. A
-model served by the eval pool but not the live pod has no live stream. Adding a model also means
-raising memory and the startup budget (see [Sizing](#sizing)).
+[Deploy the change](ADDING_A_MODEL.md#deploy-the-change). The value is set once, under
+`configMapGenerator` in `deploy/kubernetes/kustomization.yaml`, and both Deployments read it
+from that ConfigMap, so the two pools can't drift. Adding a model also means raising memory and
+the startup budget (see [Sizing](#sizing)).
 
 ## Sizing
 

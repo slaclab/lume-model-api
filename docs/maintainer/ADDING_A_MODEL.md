@@ -240,21 +240,24 @@ kubectl --context ad-accel-online-ml-dev -n lume-model-api exec deploy/lume-mode
   python -c "import virtual_accelerator.models.cu_hxr as m; print(m.get_cu_hxr_staged_model)"
 ```
 
-### 1. Edit both Deployments
+### 1. Edit the kustomization and both Deployments
 
-Set the same `LUME_MODELS` in `deploy/kubernetes/deployment.yaml` (eval) and
-`deploy/kubernetes/deployment-live.yaml` (live). A model missing from the live Deployment has no
-live stream. The value is JSON inside a YAML string, so keep the outer single quotes:
+Set `LUME_MODELS` once, under `configMapGenerator` in `deploy/kubernetes/kustomization.yaml`.
+Both Deployments read it from that ConfigMap, so the eval and live pools always host the same
+models. The value is JSON inside a YAML string, so keep the outer single quotes:
 
 ```yaml
-- name: LUME_MODELS
-  value: '{"cu_hxr_staged": {"kwargs": {"n_particles": 1000, "end_element": "TD11"}},
-           "cu_hxr_otr3": {"factory": "virtual_accelerator.models.cu_hxr:get_cu_hxr_staged_model",
-                           "kwargs": {"n_particles": 1000, "end_element": "OTR3"}}}'
+configMapGenerator:
+  - name: lume-model-api-models
+    literals:
+      - 'LUME_MODELS={"cu_hxr_staged": {"kwargs": {"n_particles": 1000, "end_element": "TD11"}},
+         "cu_hxr_otr3": {"factory": "virtual_accelerator.models.cu_hxr:get_cu_hxr_staged_model",
+                         "kwargs": {"n_particles": 1000, "end_element": "OTR3"}}}'
 ```
 
 Each pod runs `LUME_POOL_WORKERS` (2) workers per model, so a second model doubles the worker
-count. Raise `resources` and the startup budget in the same edit, in both files:
+count. Raise `resources` and the startup budget in the same edit, in both
+`deployment.yaml` (eval) and `deployment-live.yaml` (live):
 
 ```yaml
 resources:
@@ -300,7 +303,8 @@ kubectl -n lume-model-api rollout status deployment/lume-model-api-eval --timeou
 kubectl -n lume-model-api rollout status deployment/lume-model-api-live --timeout=15m
 ```
 
-An env-only change still restarts every pod, because the pod template changed. The eval pool rolls
+A `LUME_MODELS`-only change still restarts every pod: kustomize hashes the ConfigMap's content
+into its name, so both pod templates change. The eval pool rolls
 one pod at a time. The live pod is replaced with a gap while the new one builds its models.
 
 When `newTag` doesn't change (for example, the `dev` tag was overwritten with a new image),

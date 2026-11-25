@@ -16,8 +16,8 @@ section), so the demo tracks a shorter beamline.
    their tested versions, pinned in the Dockerfile (see
    [Deferred pin bumps](#deferred-pin-bumps)). The stack installed cleanly in a fresh environment
    on bmad `20261023.0` and pytao `1.3.3`.
-2. **End the model at `OTR3`.** `LUME_MODELS` in both `deploy/kubernetes/deployment.yaml` and
-   `deployment-live.yaml` sets `end_element` to `OTR3`. The model then has 11 inputs and no bend
+2. **End the model at `OTR3`.** `LUME_MODELS` in `deploy/kubernetes/kustomization.yaml`, shared by
+   both Deployments, sets `end_element` to `OTR3`. The model then has 11 inputs and no bend
    in range, so the live pod reads no `BEND:*` PV. The first bend past `OTR3` is
    `BEND:IN20:661` (BX01), between `OTR3` and `OTR4`. Its live `BCTRL` (0.000166 GeV/c, against
    a design of 0.135) moves the beam about 158 mm off `OTR4`, so any span past `OTR3` also needs
@@ -88,10 +88,3 @@ section), so the demo tracks a shorter beamline.
   a rebuild installs the latest. On 2026-11-03 that was uvicorn `0.54.0` and sse-starlette `3.6.0`,
   against `0.53.0` and `3.4.11` in the image deployed before this bump.
 
-## Deployment config
-
-- **One `LUME_MODELS` for both Deployments.** `deployment.yaml` and `deployment-live.yaml` each
-  set `LUME_MODELS`, and nothing checks they match. The eval pods serve `/config` and the live pod
-  serves the stream, so if they drift `/config` can list a screen that `/live/stream` rejects with
-  a 400. Move the value into a ConfigMap that both reference (as `configmap-epics.yaml` does for
-  the EPICS settings), or add a test that loads both manifests and compares the two values.
